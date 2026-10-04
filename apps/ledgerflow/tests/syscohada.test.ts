@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { approveSupplierInvoice, cashForecast } from '../src/financeData.ts'
 import { accountsOf, countries, createEmptyStore, createStore, docTotals, saveSalesDoc, setupFor, tiersBalance } from '../src/sageData.ts'
 import { fromSnapshot, toSnapshot } from '../src/sageSnapshot.ts'
+import { balanceSheet, incomeStatement, type StatementLine } from '../src/syscohada.ts'
 
 const cameroon = countries.find((country) => country.code === 'CM')!
 
@@ -56,4 +57,36 @@ test('chart and country survive saving; data saved before them open on the Frenc
   delete before.settings.chart
   delete before.settings.country
   assert.deepEqual([fromSnapshot(before).chart, fromSnapshot(before).country], ['pcg', ''])
+})
+
+const total = (lines: StatementLine[], ref: string) => lines.find((line) => line.ref === ref)!.amount
+
+test('the SYSCOHADA balance sheet balances and carries the income statement result', () => {
+  for (const country of countries) {
+    const store = createStore('Démo', country)
+    const year = Number(store.entries[0].date.slice(0, 4))
+    const { assets, liabilities } = balanceSheet(store, year)
+    assert.equal(total(assets, 'BZ'), total(liabilities, 'DZ'), country.code)
+    assert.ok(total(assets, 'BZ') > 0)
+    const income = incomeStatement(store, year)
+    assert.equal(total(liabilities, 'CJ') + total(liabilities, 'CH'), income.result)
+  }
+})
+
+test('income statement: commercial margin, value added and net result follow the SYSCOHADA cascade', () => {
+  const entry = (account: string, debit: number, credit: number, date = '2026-03-01') => ({ id: 0, piece: 'X', journal: 'OD', date, account, label: '', debit, credit })
+  const entries = [
+    entry('701100', 0, 1000), entry('601100', 600, 0), entry('706000', 0, 200), entry('627000', 50, 0), entry('631000', 10, 0),
+    entry('661000', 100, 0), entry('671000', 20, 0), entry('891000', 30, 0), entry('701100', 0, 999, '2025-12-31'),
+  ]
+  const { lines, result } = incomeStatement({ entries }, 2026)
+  assert.deepEqual(['TA', 'RA', 'XA', 'XB', 'RH', 'XC', 'XD', 'XE', 'XF', 'XI'].map((ref) => total(lines, ref)), [1000, 600, 400, 1200, 60, 540, 440, 440, -20, 390])
+  assert.equal(result, 390)
+})
+
+test('balances end up on the right side: bank overdraft and customer advances are liabilities', () => {
+  const entry = (account: string, debit: number, credit: number) => ({ id: 0, piece: 'X', journal: 'OD', date: '2026-03-01', account, label: '', debit, credit })
+  const { assets, liabilities } = balanceSheet({ entries: [entry('521100', 0, 500), entry('411100', 0, 300), entry('571100', 800, 0)] }, 2026)
+  assert.deepEqual([total(liabilities, 'DR'), total(liabilities, 'DI'), total(assets, 'BS')], [500, 300, 800])
+  assert.equal(total(assets, 'BZ'), total(liabilities, 'DZ'))
 })

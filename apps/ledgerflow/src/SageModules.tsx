@@ -7,6 +7,7 @@ import {
   type Article, type Client, type DocLine, type Entry, type ModuleId, type Origin, type Payment, type PieceLine,
   type PurchaseDoc, type PurchaseDocType, type SalesDoc, type SalesDocType, type Store, type Supplier,
 } from './sageData'
+import { balanceSheet, incomeStatement, type StatementLine } from './syscohada'
 import { entriesSheet } from './sageExport'
 import { downloadXlsx, type Sheet } from './xlsx'
 import './SageModules.css'
@@ -1587,14 +1588,37 @@ function PeriodicView({ ctx }: ViewProps) {
   )
 }
 
+/** One SYSCOHADA statement: reference, label and amount, subtotals in bold. Empty detail lines are left out. */
+function StatementTable({ title, lines, money }: { title: string; lines: StatementLine[]; money: (amount: number) => string }) {
+  return (
+    <div className="table-scroll">
+      <table className="data-table sg-table">
+        <thead><tr><th>{'RÉF.'}</th><th>{title}</th><th className="sg-num">{'NET'}</th></tr></thead>
+        <tbody>{lines.filter((line) => line.total || line.amount).map((line) => line.total
+          ? <tr key={line.ref}><td><strong>{line.ref}</strong></td><td><strong>{line.label}</strong></td><td className="sg-num"><strong>{money(line.amount)}</strong></td></tr>
+          : <tr key={line.ref}><td>{line.ref}</td><td>{line.label}</td><td className="sg-num">{money(line.amount)}</td></tr>)}</tbody>
+      </table>
+    </div>
+  )
+}
+
 function ReportsView({ ctx }: ViewProps) {
   const { tr, store, money } = ctx
-  const [report, setReport] = useState<'balance' | 'ledger' | 'journal' | 'vat'>('balance')
+  const [report, setReport] = useState<'balance' | 'ledger' | 'journal' | 'vat' | 'bilan' | 'resultat'>('balance')
   const [month, setMonth] = useState('all')
   const [account, setAccount] = useState<string>(accountsOf(store).clients)
   const [journal, setJournal] = useState('all')
+  // Financial statements cover a financial year, which OHADA sets to the calendar year.
+  const years = Array.from(new Set([...store.entries.map((entry) => entry.date.slice(0, 4)), isoDate().slice(0, 4)])).sort().reverse()
+  const [year, setYear] = useState(years[0])
+  const statement = report === 'bilan' || report === 'resultat'
+  const position = report === 'bilan' ? balanceSheet(store, Number(year)) : undefined
+  const income = report === 'resultat' ? incomeStatement(store, Number(year)) : undefined
   const entries = store.entries.filter((entry) => month === 'all' || period(entry.date) === month)
-  const titles = { balance: tr('Balance des comptes', 'Trial balance'), ledger: tr('Grand livre', 'General ledger'), journal: tr('Journal', 'Journal'), vat: tr('Déclaration de TVA', 'VAT return') }
+  const titles = {
+    balance: tr('Balance des comptes', 'Trial balance'), ledger: tr('Grand livre', 'General ledger'), journal: tr('Journal', 'Journal'), vat: tr('Déclaration de TVA', 'VAT return'),
+    bilan: tr('Bilan SYSCOHADA', 'SYSCOHADA balance sheet'), resultat: tr('Compte de résultat SYSCOHADA', 'SYSCOHADA income statement'),
+  }
   const balance = store.accounts.map((item) => {
     const lines = entries.filter((entry) => entry.account === item.number)
     const debit = sum(lines.map((entry) => entry.debit))
@@ -1606,9 +1630,18 @@ function ReportsView({ ctx }: ViewProps) {
   const collected = movement(prefixes.vatCollected, 1)
   const deductible = movement(prefixes.vatDeductible, -1)
   const listed = report === 'ledger' ? entries.filter((entry) => entry.account === account) : entries.filter((entry) => journal === 'all' || entry.journal === journal)
-  const fileName = `${titles[report]} ${month === 'all' ? '' : month}`.trim()
+  const fileName = `${titles[report]} ${statement ? year : month === 'all' ? '' : month}`.trim()
+  const statementRows = (lines: StatementLine[]) => lines.map((line) => [line.ref, line.label, line.amount])
 
   function exportExcel() {
+    if (position) {
+      downloadXlsx(`${fileName}.xlsx`, [{ name: 'Actif', rows: [['Réf.', 'Actif', 'Net'], ...statementRows(position.assets)] }, { name: 'Passif', rows: [['Réf.', 'Passif', 'Net'], ...statementRows(position.liabilities)] }])
+      return
+    }
+    if (income) {
+      downloadXlsx(`${fileName}.xlsx`, [{ name: 'Compte de résultat', rows: [['Réf.', 'Libellé', 'Montant'], ...statementRows(income.lines)] }])
+      return
+    }
     const sheet: Sheet = report === 'balance'
       ? { name: titles.balance, rows: [['Compte', 'Intitulé', 'Débit', 'Crédit', 'Solde'], ...balance.map((row) => [row.number, row.label, row.debit, row.credit, row.solde])] }
       : report === 'vat'
@@ -1618,15 +1651,19 @@ function ReportsView({ ctx }: ViewProps) {
   }
 
   return (
-    <Panel className="sg-report" title={titles[report]} subtitle={`${store.company} · ${month === 'all' ? tr('Toutes périodes', 'All periods') : month}`}
+    <Panel className="sg-report" title={titles[report]} subtitle={`${store.company} · ${statement ? `${tr('Exercice', 'Financial year')} ${year}` : month === 'all' ? tr('Toutes périodes', 'All periods') : month}`}
       action={<div className="row-actions sg-noprint">
         <button className="approve-button" type="button" onClick={exportExcel}><FileSpreadsheet size={13} />Excel</button>
         {ctx.savePdf && <button className="approve-button" type="button" onClick={() => ctx.savePdf?.(fileName)}><FileDown size={13} />PDF</button>}
         <button className="primary-button" type="button" onClick={() => window.print()}><Printer size={14} />{tr('Imprimer', 'Print')}</button>
       </div>}>
-      <Chips value={report} onChange={setReport} options={[['balance', tr('Balance', 'Trial balance')], ['ledger', tr('Grand livre', 'Ledger')], ['journal', tr('Journal', 'Journal')], ['vat', tr('TVA', 'VAT')]]} />
+      <Chips value={report} onChange={setReport} options={[
+        ['balance', tr('Balance', 'Trial balance')], ['ledger', tr('Grand livre', 'Ledger')], ['journal', tr('Journal', 'Journal')], ['vat', tr('TVA', 'VAT')],
+        ...(store.chart === 'syscohada' ? [['bilan', tr('Bilan', 'Balance sheet')], ['resultat', tr('Compte de résultat', 'Income statement')]] satisfies [typeof report, string][] : []),
+      ]} />
       <div className="sg-form sg-noprint">
-        <label>{tr('Période', 'Period')}<select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">{tr('Toutes', 'All')}</option>{periodsOf(store).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+        {statement && <label>{tr('Exercice', 'Financial year')}<select value={year} onChange={(event) => setYear(event.target.value)}>{years.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
+        {!statement && <label>{tr('Période', 'Period')}<select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">{tr('Toutes', 'All')}</option>{periodsOf(store).map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
         {report === 'ledger' && <label>{tr('Compte', 'Account')}<select value={account} onChange={(event) => setAccount(event.target.value)}>{store.accounts.map((item) => <option key={item.number} value={item.number}>{item.number} · {item.label}</option>)}</select></label>}
         {report === 'journal' && <label>{tr('Journal', 'Journal')}<select value={journal} onChange={(event) => setJournal(event.target.value)}><option value="all">{tr('Tous', 'All')}</option>{store.journals.map((item) => <option key={item.code} value={item.code}>{item.code} · {item.label}</option>)}</select></label>}
       </div>
@@ -1645,6 +1682,12 @@ function ReportsView({ ctx }: ViewProps) {
         <Stat label={tr(`TVA déductible (${prefixes.vatDeductible})`, `Deductible VAT (${prefixes.vatDeductible})`)} value={money(deductible)} />
         <Stat label={collected >= deductible ? tr('TVA à payer', 'VAT payable') : tr('Crédit de TVA', 'VAT credit')} value={money(Math.abs(round2(collected - deductible)))} />
       </div>}
+      {position && <>
+        <StatementTable title={tr('ACTIF', 'ASSETS')} lines={position.assets} money={money} />
+        <StatementTable title={tr('PASSIF', 'LIABILITIES AND EQUITY')} lines={position.liabilities} money={money} />
+      </>}
+      {income && <StatementTable title={tr('COMPTE DE RÉSULTAT', 'INCOME STATEMENT')} lines={income.lines} money={money} />}
+      {statement && <p className="dk-note">{tr('Montants tirés des écritures de l’exercice. Les variations de stocks (603) et les amortissements n’apparaissent qu’une fois comptabilisés : faites valider les états par votre expert-comptable avant dépôt.', 'Amounts come from the year’s entries. Stock variations (603) and depreciation only appear once posted: have your accountant check the statements before filing.')}</p>}
     </Panel>
   )
 }
