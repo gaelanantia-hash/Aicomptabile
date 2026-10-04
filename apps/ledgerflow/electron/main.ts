@@ -7,6 +7,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, safeStorage, 
 import electronUpdater from 'electron-updater'
 import type { Account, DesktopState, Snapshot, SyncState, UpdateState } from '../src/desktopApi.ts'
 import { createAuth, type Auth } from './auth.ts'
+import { createAutoBackup } from './backup.ts'
 import { loadConfig } from './config.ts'
 import { openDatabase, type Database } from './database.ts'
 import { createDrive } from './drive.ts'
@@ -102,6 +103,19 @@ function openSession(account?: Account) {
   // Signing in or out, and every account change, adds a line to the access history, which must then reach Drive.
   session = { account, db, sync, auth: createAuth(db, device, () => sync?.markDirty()) }
   if (sync) heartbeat = setInterval(() => { void sync.run() }, 60_000)
+  else {
+    // Without Drive there is no revision history: a dated copy a day, the last 30 kept, guards against a damaged or mistaken database.
+    const autoBackup = createAutoBackup({ dir: join(userData, 'backups', 'auto'), exportData: () => db.exportData(device.name), isEmpty: () => db.isEmpty() })
+    const backup = () => {
+      try {
+        autoBackup.run()
+      } catch (error) {
+        void reportError(error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack ?? '' : '', 'backup')
+      }
+    }
+    backup()
+    heartbeat = setInterval(backup, 3_600_000)
+  }
 }
 
 function currentState(): DesktopState {
@@ -257,7 +271,7 @@ const handlers: Record<string, (...args: never[]) => unknown> = {
   },
   importBackup: async () => {
     const { db, sync } = requireSignedIn()
-    const result = await dialog.showOpenDialog(window!, { properties: ['openFile'], filters: [{ name: 'AICOM', extensions: ['json'] }] })
+    const result = await dialog.showOpenDialog(window!, { defaultPath: join(userData, 'backups'), properties: ['openFile'], filters: [{ name: 'AICOM', extensions: ['json'] }] })
     if (result.canceled || !result.filePaths[0]) return false
     sync?.backupLocal('before-import')
     db.importData(JSON.parse(readFileSync(result.filePaths[0], 'utf8')))
