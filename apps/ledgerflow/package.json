@@ -4,7 +4,7 @@
   "description": "AICOM — gestion commerciale, caisse et comptabilité",
   "author": "AICOM",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -76,7 +76,8 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "shortcutName": "AICOM"
+      "shortcutName": "AICOM",
+      "artifactName": "AICOM-Setup-${version}.${ext}"
     },
     "publish": {
       "provider": "generic",

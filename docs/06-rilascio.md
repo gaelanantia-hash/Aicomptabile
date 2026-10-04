@@ -66,6 +66,18 @@ Con un certificato `.pfx`, `electron-builder` firma da solo se trova le variabil
 
 Per pubblicare una versione: carica nel bucket il contenuto di `release/` (`.exe`, `.blockmap`, `latest.yml`), aggiorna `releases.json` e ripubblica il servizio licenze. Il flusso `release.yml` lo fa da solo.
 
+### Pubblicare dal PC (senza GitHub Actions)
+
+1. Installa Google Cloud CLI e accedi: `gcloud auth login`, poi `gcloud config set project <ID-progetto>`.
+2. Alza `version` in `apps/ledgerflow/package.json` (e in `releases.json` le note).
+3. Esegui `pwsh scripts/publish-release.ps1 -Bucket <nome-bucket>`.
+
+Lo script crea il bucket se manca (lettura pubblica), scrive `updateFeedUrl` in `desktop.config.json`, esegue i test, costruisce l'installer `AICOM-Setup-<versione>.exe` e lo carica; `latest.yml` per ultimo e senza cache. Link fisso per i nuovi clienti: `https://storage.googleapis.com/<bucket>/releases/AICOM-Setup-latest.exe`.
+
+**Le installazioni 0.1.0 non si aggiornano da sole**: il loro installer aveva `updateFeedUrl` vuoto. La 0.2.0 va installata a mano una volta (sopra la 0.1.0: i dati restano); dalla 0.2.0 in poi gli aggiornamenti sono automatici.
+
+Senza firma, gli aggiornamenti funzionano lo stesso: l'app non verifica l'editore (nessun `publisherName`), controlla l'impronta SHA-512 dell'installer scritta in `latest.yml`. Chi può scrivere nel bucket può quindi distribuire codice ai clienti: limitare a te i permessi di scrittura.
+
 Il passaggio reale da una versione installata alla successiva richiede due installer firmati: è nella lista delle prove manuali.
 
 Importante: le regole di business sono dentro l'app. Un cliente con una versione vecchia calcola con le regole vecchie finché non aggiorna. Se una versione cambia lo schema dei dati, i PC non aggiornati si rifiutano di aprire i dati e chiedono l'aggiornamento.
