@@ -1,0 +1,8 @@
+{
+  "googleClientId": "REPLACE-WITH-OAUTH-DESKTOP-CLIENT-ID.apps.googleusercontent.com",
+  "googleClientSecret": "REPLACE-WITH-THE-DESKTOP-CLIENT-SECRET",
+  "licenseServerUrl": "https://REPLACE-WITH-CLOUD-RUN-URL",
+  "licensePublicKey": "REPLACE-WITH-PUBLIC-KEY-FROM-npm-run-admin-keygen",
+  "updateFeedUrl": "https://storage.googleapis.com/REPLACE-WITH-BUCKET/releases",
+  "trialUntil": ""
+}

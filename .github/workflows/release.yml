@@ -1,0 +1,81 @@
+name: Release
+
+# Publishing a version: update apps/licensing/releases.json, then push a tag such as v0.2.0.
+# Required repository configuration is listed in docs/06-rilascio.md.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  installer:
+    name: Windows installer
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/ledgerflow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/ledgerflow/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Write desktop.config.json
+        shell: bash
+        run: |
+          cat > desktop.config.json <<EOF
+          {
+            "googleClientId": "${{ vars.GOOGLE_OAUTH_CLIENT_ID }}",
+            "googleClientSecret": "${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}",
+            "licenseServerUrl": "${{ vars.LICENSE_SERVER_URL }}",
+            "licensePublicKey": "${{ vars.LICENSE_PUBLIC_KEY }}",
+            "updateFeedUrl": "https://storage.googleapis.com/${{ vars.RELEASE_BUCKET }}/releases"
+          }
+          EOF
+      - name: Build and sign
+        run: npm run dist
+        env:
+          # Code-signing certificate (.pfx as base64) and its password. Without them the installer is unsigned.
+          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - name: Publish installer and update feed
+        uses: google-github-actions/upload-cloud-storage@v2
+        with:
+          path: apps/ledgerflow/release
+          destination: ${{ vars.RELEASE_BUCKET }}/releases
+          parent: false
+          glob: '*.{exe,blockmap,yml}'
+
+  licensing:
+    name: Deploy licensing service
+    needs: installer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci && npm test
+        working-directory: apps/licensing
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: aicom-licensing
+          region: ${{ vars.GCP_REGION }}
+          source: apps/licensing
+          secrets: |
+            LICENSE_PRIVATE_KEY=aicom-license-private-key:latest
+            ADMIN_TOKEN=aicom-admin-token:latest

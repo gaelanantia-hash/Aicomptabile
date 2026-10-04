@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-electron/
+release/
+consegna/
+*.log
+.env
+.env.*
+!.env.example
+!.env.server.example
+desktop.config.json
+data/

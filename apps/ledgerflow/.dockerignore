@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-electron
+release
+.git
+.env
+.env.*
+!.env.example
+!.env.server.example
+npm-debug.log*
