@@ -8,7 +8,7 @@ import type { AccessEvent, AccessRow, AppUser, AuditRow, AuthResult, DesktopApi,
 import { FinanceView, type FinanceSection } from './FinanceSections'
 import { SageModules } from './SageModules'
 import { exportWorkbook } from './sageExport'
-import { createEmptyStore, createStore, type ModuleId, type Store } from './sageData'
+import { countries, createEmptyStore, createStore, setupFor, vatRatesOf, type ModuleId, type Store } from './sageData'
 import { fromSnapshot, toSnapshot } from './sageSnapshot'
 import logo from './assets/aicom-logo.png'
 import logoMark from './assets/aicom-mark.png'
@@ -43,7 +43,6 @@ const currencies: [string, string][] = [
   ['EUR', 'Euro (€)'], ['XAF', 'Franc CFA — Afrique centrale (FCFA)'], ['XOF', 'Franc CFA — Afrique de l’Ouest (F CFA)'], ['USD', 'Dollar US ($)'], ['CHF', 'Franc suisse (CHF)'],
   ['GBP', 'Livre sterling (£)'], ['CAD', 'Dollar canadien'], ['MAD', 'Dirham marocain'], ['TND', 'Dinar tunisien'], ['DZD', 'Dinar algérien'],
 ]
-const vatChoices = ['0', '5.5', '10', '18', '19.25', '20']
 
 const licenseMessages: Record<LicenseReason, [string, string]> = {
   missing: ['Saisissez votre code de licence.', 'Enter your licence code.'],
@@ -303,8 +302,15 @@ function Setup({ api, state, store, locale, setLocale, tr, refresh, loadStore, o
   const [code, setCode] = useState('')
   const [company, setCompany] = useState('')
   const [sample, setSample] = useState(false)
+  // Central African OHADA states come first; the empty code keeps the former setup (any currency, French chart of accounts).
+  const [countryCode, setCountryCode] = useState(countries[0].code)
+  const country = countries.find((item) => item.code === countryCode)
   const [currency, setCurrency] = useState('EUR')
-  const [vat, setVat] = useState('20')
+  const [vat, setVat] = useState(String(countries[0].defaultVat))
+  const chooseCountry = (code: string) => {
+    setCountryCode(code)
+    setVat(String(countries.find((item) => item.code === code)?.defaultVat ?? 20))
+  }
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [account, setAccount] = useState({ name: '', username: '', password: '', confirm: '' })
@@ -348,7 +354,9 @@ function Setup({ api, state, store, locale, setLocale, tr, refresh, loadStore, o
     await refresh()
     await loadStore()
   })
-  const create = () => run(() => onCreate(sample ? { ...createStore(company.trim()), currency, defaultVat: Number(vat) } : createEmptyStore(company.trim(), currency, Number(vat))))
+  const create = () => run(() => onCreate(country
+    ? sample ? createStore(company.trim(), { ...country, defaultVat: Number(vat) }) : createEmptyStore(company.trim(), { ...setupFor(country), defaultVat: Number(vat) })
+    : sample ? { ...createStore(company.trim()), currency, defaultVat: Number(vat) } : createEmptyStore(company.trim(), { currency, defaultVat: Number(vat) })))
 
   return (
     <main className="portal-shell">
@@ -407,8 +415,9 @@ function Setup({ api, state, store, locale, setLocale, tr, refresh, loadStore, o
             {!state.localOnly && state.sync.status !== 'synced' && <p className="portal-error" role="alert">{tr('Google Drive n’a pas pu être vérifié (', 'Google Drive could not be checked (')}{syncLabel(state.sync, false, tr).text}{tr('). Si vous avez déjà des données AICOM, rétablissez la connexion avant de continuer.', '). If you already have AICOM data, restore the connection before continuing.')} <button className="portal-link" type="button" onClick={() => { void run(async () => { await api.syncNow(); await refresh(); await loadStore() }) }}>{tr('Réessayer', 'Retry')}</button></p>}
             <form className="portal-form" onSubmit={(event) => { event.preventDefault(); void create() }}>
               <label>{tr('Nom de l’entreprise', 'Company name')}<input value={company} maxLength={120} required autoFocus onChange={(event) => setCompany(event.target.value)} /></label>
-              <label>{tr('Devise', 'Currency')}<select className="dk-select" value={currency} onChange={(event) => setCurrency(event.target.value)}>{currencies.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
-              <label>{tr('TVA appliquée par défaut', 'Default VAT')}<select className="dk-select" value={vat} onChange={(event) => setVat(event.target.value)}>{vatChoices.map((rate) => <option key={rate} value={rate}>{rate === '0' ? tr('Sans TVA (0 %)', 'No VAT (0%)') : `${rate} %`}</option>)}</select><small>{tr('Modifiable ensuite dans Paramètres', 'Can be changed later in Settings')}</small></label>
+              <label>{tr('Pays', 'Country')}<select className="dk-select" value={countryCode} onChange={(event) => chooseCountry(event.target.value)}>{countries.map((item) => <option key={item.code} value={item.code}>{tr(item.fr, item.en)}</option>)}<option value="">{tr('Autre pays (plan comptable français)', 'Other country (French chart of accounts)')}</option></select>{country && <small>{tr(`Plan comptable SYSCOHADA révisé · ${country.currency}`, `Revised SYSCOHADA chart of accounts · ${country.currency}`)}</small>}</label>
+              {!country && <label>{tr('Devise', 'Currency')}<select className="dk-select" value={currency} onChange={(event) => setCurrency(event.target.value)}>{currencies.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>}
+              <label>{tr('TVA appliquée par défaut', 'Default VAT')}<select className="dk-select" value={vat} onChange={(event) => setVat(event.target.value)}>{vatRatesOf({ country: countryCode }).map(String).map((rate) => <option key={rate} value={rate}>{rate === '0' ? tr('Sans TVA (0 %)', 'No VAT (0%)') : `${rate} %`}</option>)}</select><small>{tr('Modifiable ensuite dans Paramètres', 'Can be changed later in Settings')}</small></label>
               <label className="dk-check"><input type="checkbox" checked={sample} onChange={(event) => setSample(event.target.checked)} />{tr('Charger des données d’exemple pour découvrir le logiciel', 'Load sample data to explore the software')}</label>
               {message && <p className="portal-error" role="alert">{message}</p>}
               <button className="portal-submit" type="submit" disabled={busy || !company.trim()}>{busy && <LoaderCircle className="spin-icon" size={16} />}{tr('Créer l’espace', 'Create the space')}</button>
@@ -793,8 +802,9 @@ function SettingsDialog({ api, state, store, tr, locale, notify, refresh, loadSt
           <div className="sg-form dk-inline-form">
             <label>{tr('Nom', 'Name')}<input value={companyName} maxLength={120} onChange={(event) => setCompanyName(event.target.value)} onBlur={() => { if (companyName.trim() && companyName.trim() !== store.company) onStore({ ...store, company: companyName.trim() }, 'Changed company settings') }} /></label>
             <label>{tr('Devise', 'Currency')}<select value={store.currency} onChange={(event) => onStore({ ...store, currency: event.target.value }, 'Changed company settings')}>{currencies.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
-            <label>{tr('TVA par défaut', 'Default VAT')}<select value={String(store.defaultVat)} onChange={(event) => onStore({ ...store, defaultVat: Number(event.target.value) }, 'Changed company settings')}>{Array.from(new Set([...vatChoices, String(store.defaultVat)])).map((rate) => <option key={rate} value={rate}>{rate === '0' ? tr('Sans TVA (0 %)', 'No VAT (0%)') : `${rate} %`}</option>)}</select></label>
+            <label>{tr('TVA par défaut', 'Default VAT')}<select value={String(store.defaultVat)} onChange={(event) => onStore({ ...store, defaultVat: Number(event.target.value) }, 'Changed company settings')}>{Array.from(new Set([...vatRatesOf(store).map(String), String(store.defaultVat)])).map((rate) => <option key={rate} value={rate}>{rate === '0' ? tr('Sans TVA (0 %)', 'No VAT (0%)') : `${rate} %`}</option>)}</select></label>
           </div>
+          <p className="dk-note">{tr('Pays', 'Country')} : {countries.find((item) => item.code === store.country)?.[locale === 'fr' ? 'fr' : 'en'] ?? '—'} · {tr('Plan comptable', 'Chart of accounts')} : {store.chart === 'syscohada' ? tr('SYSCOHADA révisé', 'Revised SYSCOHADA') : tr('plan comptable général français', 'French general chart')}</p>
           <p className="dk-note">{tr('La devise change seulement l’affichage des montants. Le taux de TVA s’applique aux nouveaux articles et documents, pas à ceux déjà enregistrés.', 'The currency only changes how amounts are displayed. The VAT rate applies to new items and documents, not to those already saved.')}</p>
 
           <h3><Cloud size={14} />{tr('Compte Google et synchronisation', 'Google account and sync')}</h3>
@@ -848,7 +858,7 @@ function SettingsDialog({ api, state, store, tr, locale, notify, refresh, loadSt
             tr('Supprimer toutes les données de cette entreprise et repartir de zéro ?', 'Delete all the data of this company and start from scratch?'),
             async () => {
               const file = await api.backupNow()
-              onStore({ ...createEmptyStore(store.company, store.currency, store.defaultVat), accounts: store.accounts, journals: store.journals }, 'Emptied company data')
+              onStore({ ...createEmptyStore(store.company, { currency: store.currency, defaultVat: store.defaultVat, chart: store.chart, country: store.country }), accounts: store.accounts, journals: store.journals }, 'Emptied company data')
               notify(tr(`Données supprimées. Sauvegarde : ${file}`, `Data deleted. Backup: ${file}`))
               onClose()
             })}><Trash2 size={12} />{tr('Supprimer toutes les données', 'Delete all data')}</button></div>

@@ -30,8 +30,14 @@ export type SupplierInvoice = { id: string; number: string; supplier: string; da
 /** Line of a bank statement; `piece` is set once it has been posted to the bank journal. */
 export type BankLine = { id: string; date: string; label: string; amount: number; piece?: string }
 
+/** Chart of accounts: SYSCOHADA (OHADA states) or the French PCG, kept for companies created before SYSCOHADA support. */
+export type ChartId = 'syscohada' | 'pcg'
+
 export type Store = {
   company: string
+  /** ISO country code of the company (CM, GA, …); empty for companies outside the supported countries. */
+  country: string
+  chart: ChartId
   /** ISO currency code used to display every amount (EUR, XAF, …). */
   currency: string
   /** VAT rate, in percent, proposed for new items and documents; 0 when prices carry no VAT. */
@@ -136,7 +142,102 @@ export const sageModules: SageModule[] = [
   },
 ]
 
-export const ACCOUNTS = { suppliers: '401000', clients: '411000', vatDeductible: '445660', vatCollected: '445710', bank: '512000', cash: '531000', purchases: '607000', sales: '707000' }
+export type AccountRole = 'suppliers' | 'clients' | 'vatDeductible' | 'vatCollected' | 'bank' | 'cash' | 'purchases' | 'sales'
+/** Accounts used by the sample company for its opening capital and typical expenses. */
+type SampleRole = 'capital' | 'office' | 'subcontracting' | 'advertising' | 'bankFees'
+/** `prefixes` group the accounts read by reports: every VAT collected or deductible sub-account, every bank account. */
+type Chart = { roles: Record<AccountRole, string>; prefixes: { vatCollected: string; vatDeductible: string; bank: string }; sample: Record<SampleRole, string>; accounts: Account[] }
+
+export const charts: Record<ChartId, Chart> = {
+  // Système comptable OHADA révisé (in force since 2018 in all OHADA member states).
+  syscohada: {
+    roles: { suppliers: '401100', clients: '411100', vatDeductible: '445200', vatCollected: '443100', bank: '521100', cash: '571100', purchases: '601100', sales: '701100' },
+    prefixes: { vatCollected: '443', vatDeductible: '445', bank: '52' },
+    sample: { capital: '101300', office: '605500', subcontracting: '621000', advertising: '627000', bankFees: '631000' },
+    accounts: [
+      { number: '101300', label: 'Capital souscrit, appelé, versé, non amorti' },
+      { number: '401100', label: 'Fournisseurs' },
+      { number: '411100', label: 'Clients' },
+      { number: '421000', label: 'Personnel, avances et acomptes' },
+      { number: '431000', label: 'Sécurité sociale' },
+      { number: '443100', label: 'TVA facturée sur ventes' },
+      { number: '444100', label: 'État, TVA due' },
+      { number: '445200', label: 'TVA récupérable sur achats' },
+      { number: '445400', label: 'TVA récupérable sur services extérieurs' },
+      { number: '521100', label: 'Banques locales' },
+      { number: '571100', label: 'Caisse' },
+      { number: '601100', label: 'Achats de marchandises' },
+      { number: '605500', label: 'Fournitures de bureau non stockables' },
+      { number: '621000', label: 'Sous-traitance générale' },
+      { number: '622200', label: 'Locations de bâtiments' },
+      { number: '627000', label: 'Publicité, publications, relations publiques' },
+      { number: '628100', label: 'Frais de téléphone' },
+      { number: '631000', label: 'Frais bancaires' },
+      { number: '641000', label: 'Impôts et taxes directs' },
+      { number: '661000', label: 'Rémunérations directes versées au personnel national' },
+      { number: '701100', label: 'Ventes de marchandises' },
+      { number: '706000', label: 'Services vendus' },
+    ],
+  },
+  pcg: {
+    roles: { suppliers: '401000', clients: '411000', vatDeductible: '445660', vatCollected: '445710', bank: '512000', cash: '531000', purchases: '607000', sales: '707000' },
+    prefixes: { vatCollected: '4457', vatDeductible: '4456', bank: '512' },
+    sample: { capital: '101300', office: '606400', subcontracting: '611200', advertising: '623100', bankFees: '627000' },
+    accounts: [
+      { number: '101300', label: 'Capital souscrit' },
+      { number: '401000', label: 'Fournisseurs' },
+      { number: '411000', label: 'Clients' },
+      { number: '445660', label: 'TVA déductible sur biens et services' },
+      { number: '445710', label: 'TVA collectée' },
+      { number: '512000', label: 'Banque' },
+      { number: '531000', label: 'Caisse' },
+      { number: '606400', label: 'Fournitures administratives' },
+      { number: '607000', label: 'Achats de marchandises' },
+      { number: '611200', label: 'Sous-traitance' },
+      { number: '623100', label: 'Publicité' },
+      { number: '627000', label: 'Services bancaires' },
+      { number: '707000', label: 'Ventes de marchandises' },
+    ],
+  },
+}
+
+/** The accounts a company posts to automatically: customers, suppliers, VAT, bank, cash, purchases and sales. */
+export const chartOf = (store: Pick<Store, 'chart'>) => charts[store.chart in charts ? store.chart : 'pcg']
+export const accountsOf = (store: Pick<Store, 'chart'>) => chartOf(store).roles
+
+/** VAT rates offered for a company: those of its country, or the former fixed list for companies without one. */
+export const vatRatesOf = (store: Pick<Store, 'country'>) => countries.find((country) => country.code === store.country)?.vat ?? [0, 5.5, 10, 18, 19.25, 20]
+
+export type Country = { code: string; fr: string; en: string; currency: string; chart: ChartId; vat: number[]; defaultVat: number; cities: string[] }
+
+/**
+ * Central African OHADA states. VAT rates are the usual ones and must be confirmed against each year's finance law;
+ * any other rate can still be set per item.
+ */
+export const countries: Country[] = [
+  { code: 'CM', fr: 'Cameroun', en: 'Cameroon', currency: 'XAF', chart: 'syscohada', vat: [0, 19.25], defaultVat: 19.25, cities: ['Douala', 'Yaoundé', 'Bafoussam'] },
+  { code: 'GA', fr: 'Gabon', en: 'Gabon', currency: 'XAF', chart: 'syscohada', vat: [0, 5, 10, 18], defaultVat: 18, cities: ['Libreville', 'Port-Gentil', 'Franceville'] },
+  { code: 'CG', fr: 'Congo', en: 'Republic of the Congo', currency: 'XAF', chart: 'syscohada', vat: [0, 5, 18, 18.9], defaultVat: 18, cities: ['Brazzaville', 'Pointe-Noire', 'Dolisie'] },
+  { code: 'TD', fr: 'Tchad', en: 'Chad', currency: 'XAF', chart: 'syscohada', vat: [0, 9, 18], defaultVat: 18, cities: ['N’Djaména', 'Moundou', 'Abéché'] },
+  { code: 'CF', fr: 'Centrafrique', en: 'Central African Republic', currency: 'XAF', chart: 'syscohada', vat: [0, 5, 19], defaultVat: 19, cities: ['Bangui', 'Berbérati', 'Bambari'] },
+  { code: 'GQ', fr: 'Guinée équatoriale', en: 'Equatorial Guinea', currency: 'XAF', chart: 'syscohada', vat: [0, 6, 15], defaultVat: 15, cities: ['Malabo', 'Bata', 'Ebebiyín'] },
+  { code: 'CD', fr: 'RD Congo', en: 'DR Congo', currency: 'CDF', chart: 'syscohada', vat: [0, 8, 16], defaultVat: 16, cities: ['Kinshasa', 'Lubumbashi', 'Goma'] },
+]
+
+const digitsCache = new Map<string, number>()
+/** Decimals used by a currency: 0 for the CFA francs, 2 for most others. */
+export function currencyDigits(currency: string) {
+  let digits = digitsCache.get(currency)
+  if (digits === undefined) {
+    try {
+      digits = new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits ?? 2
+    } catch {
+      digits = 2
+    }
+    digitsCache.set(currency, digits)
+  }
+  return digits
+}
 
 export const salesTypes: Record<SalesDocType, { prefix: string; fr: string; en: string }> = {
   devis: { prefix: 'DE', fr: 'Devis', en: 'Quote' },
@@ -153,7 +254,10 @@ export const purchaseTypes: Record<PurchaseDocType, { prefix: string; fr: string
 
 const salesChain: SalesDocType[] = ['devis', 'commande', 'livraison', 'facture']
 
-export const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
+export const roundTo = (value: number, digits: number) => Math.round((value + Number.EPSILON) * 10 ** digits) / 10 ** digits
+export const round2 = (value: number) => roundTo(value, 2)
+/** Rounds an amount to what the company's currency can actually carry (whole francs in FCFA). */
+export const roundAmount = (store: Pick<Store, 'currency'>, value: number) => roundTo(value, currencyDigits(store.currency))
 export const movesStock = (type: SalesDocType) => type === 'livraison' || type === 'facture' || type === 'ticket'
 export const isTiersAccount = (account: string) => account.startsWith('401') || account.startsWith('411')
 export const nextSalesType = (type: SalesDocType): SalesDocType | undefined => salesChain[salesChain.indexOf(type) + 1 || salesChain.length]
@@ -173,10 +277,12 @@ export function nextNumber(prefix: string, existing: string[], width = 5) {
   return `${prefix}${String(last + 1).padStart(width, '0')}`
 }
 
-export function docTotals(lines: DocLine[]) {
-  const ht = round2(lines.reduce((sum, line) => sum + line.qty * line.price, 0))
-  const vat = round2(lines.reduce((sum, line) => sum + line.qty * line.price * line.vat / 100, 0))
-  return { ht, vat, ttc: round2(ht + vat) }
+/** Net, VAT and gross totals, rounded to the currency's decimals: these are the amounts printed and posted. */
+export function docTotals(lines: DocLine[], currency = 'EUR') {
+  const digits = currencyDigits(currency)
+  const ht = roundTo(lines.reduce((sum, line) => sum + line.qty * line.price, 0), digits)
+  const vat = roundTo(lines.reduce((sum, line) => sum + line.qty * line.price * line.vat / 100, 0), digits)
+  return { ht, vat, ttc: roundTo(ht + vat, digits) }
 }
 
 export function tiersName(store: Store, code?: string) {
@@ -187,7 +293,7 @@ export function tiersName(store: Store, code?: string) {
 // Balance of a third party on its collective account: positive means the customer owes us / we owe the supplier.
 export function tiersBalance(entries: Entry[], account: string, tiers: string) {
   const balance = entries.filter((entry) => entry.account === account && entry.tiers === tiers).reduce((sum, entry) => sum + entry.debit - entry.credit, 0)
-  return round2(account === ACCOUNTS.suppliers ? -balance : balance)
+  return round2(account.startsWith('40') ? -balance : balance)
 }
 
 /** An item that appears in a document, a bill of materials or a production order cannot be deleted without breaking them. */
@@ -228,11 +334,12 @@ function settleSalesDoc(store: Store, doc: SalesDoc, replaces = doc.id): Store {
     settled = { ...settled, stockMoved: true }
   }
   if ((settled.type === 'facture' || settled.type === 'ticket') && !settled.posted) {
-    const { ht, vat, ttc } = docTotals(settled.lines)
-    const revenue = [{ account: ACCOUNTS.sales, debit: 0, credit: ht }, { account: ACCOUNTS.vatCollected, debit: 0, credit: vat }]
+    const { ht, vat, ttc } = docTotals(settled.lines, next.currency)
+    const accounts = accountsOf(next)
+    const revenue = [{ account: accounts.sales, debit: 0, credit: ht }, { account: accounts.vatCollected, debit: 0, credit: vat }]
     next = settled.type === 'facture'
-      ? postPiece(next, 'VTE', settled.date, `${settled.id} · ${tiersName(next, settled.client)}`, [{ account: ACCOUNTS.clients, tiers: settled.client, debit: ttc, credit: 0, due: addDays(settled.date, 30) }, ...revenue], settled.id)
-      : postPiece(next, 'CAI', settled.date, `${settled.id} · Vente comptoir`, [{ account: settled.payment === 'card' ? ACCOUNTS.bank : ACCOUNTS.cash, debit: ttc, credit: 0 }, ...revenue], settled.id)
+      ? postPiece(next, 'VTE', settled.date, `${settled.id} · ${tiersName(next, settled.client)}`, [{ account: accounts.clients, tiers: settled.client, debit: ttc, credit: 0, due: addDays(settled.date, 30) }, ...revenue], settled.id)
+      : postPiece(next, 'CAI', settled.date, `${settled.id} · Vente comptoir`, [{ account: settled.payment === 'card' ? accounts.bank : accounts.cash, debit: ttc, credit: 0 }, ...revenue], settled.id)
     settled = { ...settled, posted: true }
   }
   const exists = next.salesDocs.some((item) => item.id === replaces)
@@ -257,12 +364,13 @@ function settlePurchaseDoc(store: Store, doc: PurchaseDoc, replaces = doc.id): S
   let next = store
   let settled = doc
   if (settled.type === 'facture' && !settled.posted) {
-    const { ht, vat, ttc } = docTotals(settled.lines)
+    const { ht, vat, ttc } = docTotals(settled.lines, next.currency)
+    const accounts = accountsOf(next)
     next = { ...next, articles: moveStock(next.articles, settled.lines, 1) }
     next = postPiece(next, 'ACH', settled.date, [settled.id, settled.reference, tiersName(next, settled.supplier)].filter(Boolean).join(' · '), [
-      { account: ACCOUNTS.purchases, debit: ht, credit: 0 },
-      { account: ACCOUNTS.vatDeductible, debit: vat, credit: 0 },
-      { account: ACCOUNTS.suppliers, tiers: settled.supplier, debit: 0, credit: ttc, due: addDays(settled.date, 30) },
+      { account: accounts.purchases, debit: ht, credit: 0 },
+      { account: accounts.vatDeductible, debit: vat, credit: 0 },
+      { account: accounts.suppliers, tiers: settled.supplier, debit: 0, credit: ttc, due: addDays(settled.date, 30) },
     ], settled.id)
     settled = { ...settled, posted: true }
   }
@@ -407,10 +515,14 @@ export function registerSupplierInvoice(store: Store, input: SupplierInvoiceInpu
   return savePurchaseDoc(next, { type: 'facture', supplier: supplier.code, date: input.date, lines: docLines, reference: input.reference?.trim() || undefined })
 }
 
+export type CompanySetup = { currency?: string; defaultVat?: number; chart?: ChartId; country?: string }
+
 /** A new company: no customers, items or entries yet, only the base chart of accounts and the journals. */
-export function createEmptyStore(company: string, currency = 'EUR', defaultVat = 20): Store {
+export function createEmptyStore(company: string, { currency = 'EUR', defaultVat = 20, chart = 'pcg', country = '' }: CompanySetup = {}): Store {
   return {
     company,
+    country,
+    chart,
     currency,
     defaultVat,
     clients: [],
@@ -420,21 +532,7 @@ export function createEmptyStore(company: string, currency = 'EUR', defaultVat =
     purchaseDocs: [],
     boms: [],
     workOrders: [],
-    accounts: [
-      { number: '101300', label: 'Capital souscrit' },
-      { number: ACCOUNTS.suppliers, label: 'Fournisseurs' },
-      { number: ACCOUNTS.clients, label: 'Clients' },
-      { number: ACCOUNTS.vatDeductible, label: 'TVA déductible sur biens et services' },
-      { number: ACCOUNTS.vatCollected, label: 'TVA collectée' },
-      { number: ACCOUNTS.bank, label: 'Banque' },
-      { number: ACCOUNTS.cash, label: 'Caisse' },
-      { number: '606400', label: 'Fournitures administratives' },
-      { number: ACCOUNTS.purchases, label: 'Achats de marchandises' },
-      { number: '611200', label: 'Sous-traitance' },
-      { number: '623100', label: 'Publicité' },
-      { number: '627000', label: 'Services bancaires' },
-      { number: ACCOUNTS.sales, label: 'Ventes de marchandises' },
-    ],
+    accounts: charts[chart].accounts.map((account) => ({ ...account })),
     journals: [
       { code: 'ACH', label: 'Achats', type: 'achats' },
       { code: 'VTE', label: 'Ventes', type: 'ventes' },
@@ -452,59 +550,87 @@ export function createEmptyStore(company: string, currency = 'EUR', defaultVat =
   }
 }
 
-/** Sample company used by the demo and offered at first start. */
-export function createStore(company = 'Maison Lumière SAS'): Store {
+/** Settings of a new company in one of the supported countries: its currency, VAT rate and SYSCOHADA. */
+export const setupFor = (country: Country): CompanySetup => ({ currency: country.currency, defaultVat: country.defaultVat, chart: country.chart, country: country.code })
+
+// Rough euro value of each currency, only to turn the sample prices into believable local amounts.
+const sampleRates: Record<string, number> = { XAF: 656, XOF: 656, CDF: 3300 }
+
+/**
+ * Sample company used by the demo and offered at first start. Without a country it is the original French one (EUR, PCG);
+ * with one, the same business in the country's currency, VAT rate, cities and SYSCOHADA accounts.
+ */
+export function createStore(company = 'Maison Lumière SAS', country?: Country): Store {
   const today = isoDate()
   const day = (offset: number) => addDays(today, offset)
+  const base = createEmptyStore(company, country ? setupFor(country) : {})
+  const rate = sampleRates[base.currency] ?? 1
+  const digits = currencyDigits(base.currency)
+  // Local prices end in round figures: 50 FCFA steps rather than 1 573,44.
+  const money = (euros: number) => rate === 1 ? euros : Math.max(50, Math.round(euros * rate / 50) * 50)
+  const vat = base.defaultVat
+  const cities = country?.cities ?? ['Lyon', 'Annecy', 'Paris']
+  const supplierCities = country?.cities ?? ['Lille', 'Paris', 'Nantes']
+  const sample = charts[base.chart].sample
+  const accounts = accountsOf(base)
+
   const articles: Article[] = [
-    { ref: 'LAMP-OPAL', name: 'Lampe de table Opale', family: 'Luminaires', cost: 58, price: 129, vat: 20, stock: 42 },
-    { ref: 'SUSP-LIN', name: 'Suspension Lin', family: 'Luminaires', cost: 84, price: 189, vat: 20, stock: 18 },
-    { ref: 'APPL-LAITON', name: 'Applique Laiton', family: 'Luminaires', cost: 41, price: 96, vat: 20, stock: 27 },
-    { ref: 'AMP-E27', name: 'Ampoule LED E27', family: 'Accessoires', cost: 2.4, price: 7.9, vat: 20, stock: 320 },
-    { ref: 'ABAT-LIN', name: 'Abat-jour lin', family: 'Composants', cost: 12, price: 34, vat: 20, stock: 20 },
-    { ref: 'PIED-CHENE', name: 'Pied en chêne', family: 'Composants', cost: 15, price: 28, vat: 20, stock: 8 },
-    { ref: 'KIT-ELEC', name: 'Kit électrique E27', family: 'Composants', cost: 4.5, price: 9, vat: 20, stock: 80 },
+    { ref: 'LAMP-OPAL', name: 'Lampe de table Opale', family: 'Luminaires', cost: money(58), price: money(129), vat, stock: 42 },
+    { ref: 'SUSP-LIN', name: 'Suspension Lin', family: 'Luminaires', cost: money(84), price: money(189), vat, stock: 18 },
+    { ref: 'APPL-LAITON', name: 'Applique Laiton', family: 'Luminaires', cost: money(41), price: money(96), vat, stock: 27 },
+    { ref: 'AMP-E27', name: 'Ampoule LED E27', family: 'Accessoires', cost: money(2.4), price: money(7.9), vat, stock: 320 },
+    { ref: 'ABAT-LIN', name: 'Abat-jour lin', family: 'Composants', cost: money(12), price: money(34), vat, stock: 20 },
+    { ref: 'PIED-CHENE', name: 'Pied en chêne', family: 'Composants', cost: money(15), price: money(28), vat, stock: 8 },
+    { ref: 'KIT-ELEC', name: 'Kit électrique E27', family: 'Composants', cost: money(4.5), price: money(9), vat, stock: 80 },
   ]
   const line = (ref: string, qty: number, atCost = false): DocLine => {
     const article = articles.find((item) => item.ref === ref)!
     return { ref, qty, price: atCost ? article.cost : article.price, vat: article.vat }
   }
+  // Supplier invoices awaiting approval, given by their net amount; VAT follows the company's rate.
+  const received = (id: string, number: string, supplier: string, offset: number, net: number, account: string): SupplierInvoice => {
+    const ht = money(net)
+    const amount = roundTo(ht * (1 + vat / 100), digits)
+    return { id, number, supplier, date: day(offset), due: day(offset + 30), amount, vat: roundTo(amount - ht, digits), account, status: 'needs_review' }
+  }
 
+  const firstInvoice = [line('LAMP-OPAL', 12), line('AMP-E27', 40)]
+  const firstPurchase = [line('ABAT-LIN', 40, true), line('PIED-CHENE', 40, true)]
+  const secondInvoice = [line('SUSP-LIN', 6)]
   let store: Store = {
-    ...createEmptyStore(company),
+    ...base,
     clients: [
-      { code: 'C0001', name: 'Les Jardins SAS', city: 'Lyon', email: 'compta@lesjardins.example' },
-      { code: 'C0002', name: 'Hôtel Belvédère', city: 'Annecy', email: 'achats@belvedere.example' },
-      { code: 'C0003', name: 'Café des Arts', city: 'Paris', email: 'contact@cafedesarts.example' },
+      { code: 'C0001', name: 'Les Jardins SAS', city: cities[0], email: 'compta@lesjardins.example' },
+      { code: 'C0002', name: 'Hôtel Belvédère', city: cities[1], email: 'achats@belvedere.example' },
+      { code: 'C0003', name: 'Café des Arts', city: cities[2], email: 'contact@cafedesarts.example' },
     ],
     suppliers: [
-      { code: 'F0001', name: 'Atelier Nord', city: 'Lille' },
-      { code: 'F0002', name: 'Bureau Central', city: 'Paris' },
-      { code: 'F0003', name: 'Studio Rivage', city: 'Nantes' },
+      { code: 'F0001', name: 'Atelier Nord', city: supplierCities[0] },
+      { code: 'F0002', name: 'Bureau Central', city: supplierCities[1] },
+      { code: 'F0003', name: 'Studio Rivage', city: supplierCities[2] },
     ],
     articles,
     boms: [{ ref: 'LAMP-OPAL', components: [{ ref: 'ABAT-LIN', qty: 1 }, { ref: 'PIED-CHENE', qty: 1 }, { ref: 'KIT-ELEC', qty: 1 }] }],
     workOrders: [{ id: 'OF00001', ref: 'LAMP-OPAL', qty: 10, date: day(2), done: false }],
     supplierInvoices: [
-      { id: 'FR00001', number: 'FAC-0892', supplier: 'Atelier Nord', date: day(-4), due: day(26), amount: 4280, vat: 713.33, account: '611200', status: 'needs_review' },
-      { id: 'FR00002', number: 'INV-78419', supplier: 'Bureau Central', date: day(-3), due: day(27), amount: 1164.5, vat: 194.08, account: '606400', status: 'needs_review' },
-      { id: 'FR00003', number: 'FAC-1906', supplier: 'Studio Rivage', date: day(-2), due: day(28), amount: 8640, vat: 1440, account: '', status: 'needs_review' },
+      received('FR00001', 'FAC-0892', 'Atelier Nord', -4, 3566.67, sample.subcontracting),
+      received('FR00002', 'INV-78419', 'Bureau Central', -3, 970.42, sample.office),
+      received('FR00003', 'FAC-1906', 'Studio Rivage', -2, 7200, ''),
     ],
     bankLines: [
-      { id: 'BK00001', date: day(-2), label: 'VIR RECU HOTEL BELVEDERE FA00002', amount: 1360.8 },
-      { id: 'BK00002', date: day(-1), label: 'PRLV ATELIER NORD FF00001', amount: -1296 },
-      { id: 'BK00003', date: day(-1), label: 'FRAIS TENUE DE COMPTE', amount: -12.5 },
+      { id: 'BK00001', date: day(-2), label: 'VIR RECU HOTEL BELVEDERE FA00002', amount: docTotals(secondInvoice, base.currency).ttc },
+      { id: 'BK00002', date: day(-1), label: 'PRLV ATELIER NORD FF00001', amount: -docTotals(firstPurchase, base.currency).ttc },
+      { id: 'BK00003', date: day(-1), label: 'FRAIS TENUE DE COMPTE', amount: -money(12.5) },
     ],
   }
 
-  const firstInvoice = [line('LAMP-OPAL', 12), line('AMP-E27', 40)]
-  store = postPiece(store, 'OD', day(-60), 'Apport en capital', [{ account: ACCOUNTS.bank, debit: 50000, credit: 0 }, { account: '101300', debit: 0, credit: 50000 }])
-  store = savePurchaseDoc(store, { type: 'facture', supplier: 'F0001', date: day(-50), lines: [line('ABAT-LIN', 40, true), line('PIED-CHENE', 40, true)] })
+  store = postPiece(store, 'OD', day(-60), 'Apport en capital', [{ account: accounts.bank, debit: money(50000), credit: 0 }, { account: sample.capital, debit: 0, credit: money(50000) }])
+  store = savePurchaseDoc(store, { type: 'facture', supplier: 'F0001', date: day(-50), lines: firstPurchase })
   store = saveSalesDoc(store, { type: 'facture', client: 'C0001', date: day(-45), lines: firstInvoice, origin: 'commercial' })
-  store = saveSalesDoc(store, { type: 'facture', client: 'C0002', date: day(-38), lines: [line('SUSP-LIN', 6)], origin: 'commercial' })
+  store = saveSalesDoc(store, { type: 'facture', client: 'C0002', date: day(-38), lines: secondInvoice, origin: 'commercial' })
   store = postPiece(store, 'BQ', day(-20), 'Règlement FA00001 · Les Jardins SAS', [
-    { account: ACCOUNTS.bank, debit: docTotals(firstInvoice).ttc, credit: 0 },
-    { account: ACCOUNTS.clients, tiers: 'C0001', debit: 0, credit: docTotals(firstInvoice).ttc },
+    { account: accounts.bank, debit: docTotals(firstInvoice, base.currency).ttc, credit: 0 },
+    { account: accounts.clients, tiers: 'C0001', debit: 0, credit: docTotals(firstInvoice, base.currency).ttc },
   ])
   store = saveSalesDoc(store, { type: 'livraison', client: 'C0003', date: day(-6), lines: [line('APPL-LAITON', 4), line('AMP-E27', 12)], origin: 'commercial' })
   store = saveSalesDoc(store, { type: 'commande', client: 'C0002', date: day(-3), lines: [line('LAMP-OPAL', 8)], origin: 'commercial' })

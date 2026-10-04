@@ -4,8 +4,11 @@ import {
   addBankLines, approveSupplierInvoice, articleAnalysis, cashForecast, closeChecks, closeProgress, dataQuality, filterSupplierInvoices, matchBankLine, missingInvoiceFields, monthlySales,
   openItems, overview, parseBankCsv, postBankLine, rejectSupplierInvoice, saveSupplierInvoice, suggestBankMatch,
 } from '../src/financeData.ts'
-import { ACCOUNTS, articleInUse, autoLetter, completeWorkOrder, createEmptyStore, createStore, isoDate, round2, saveSalesDoc, tiersBalance, tiersInUse } from '../src/sageData.ts'
+import { accountsOf, articleInUse, autoLetter, completeWorkOrder, createEmptyStore, createStore, isoDate, round2, saveSalesDoc, tiersBalance, tiersInUse } from '../src/sageData.ts'
 import { fromSnapshot, toSnapshot } from '../src/sageSnapshot.ts'
+
+// The sample company without a country, like these tests' companies, uses the French chart of accounts.
+const ACCOUNTS = accountsOf({ chart: 'pcg' })
 
 const today = isoDate()
 const balanced = (store: ReturnType<typeof createStore>) => round2(store.entries.reduce((total, entry) => total + entry.debit - entry.credit, 0)) === 0

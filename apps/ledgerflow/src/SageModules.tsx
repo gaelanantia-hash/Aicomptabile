@@ -1,7 +1,7 @@
 import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { ArrowRight, Check, CheckCircle2, ChevronRight, FileDown, FileSpreadsheet, Link2, LockKeyhole, LockKeyholeOpen, Pencil, Plus, Printer, Trash2, Undo2 } from 'lucide-react'
 import {
-  ACCOUNTS, addDays, advancePurchaseDoc, advanceSalesDoc, articleInUse, registerSupplierInvoice, autoLetter, completeWorkOrder, docTotals, isTiersAccount, isoDate, tiersInUse,
+  accountsOf, addDays, chartOf, roundAmount, vatRatesOf, advancePurchaseDoc, advanceSalesDoc, articleInUse, registerSupplierInvoice, autoLetter, completeWorkOrder, docTotals, isTiersAccount, isoDate, tiersInUse,
   missingComponent, movesStock, nextNumber, nextSalesType, postPiece, purchaseTypes, round2, sageModules, salesTypes,
   saveSalesDoc, savePurchaseDoc, shortage, supplierStockAnalysis, tiersBalance, tiersName,
   type Article, type Client, type DocLine, type Entry, type ModuleId, type Origin, type Payment, type PieceLine,
@@ -82,7 +82,7 @@ function parseLines(store: Store, lines: DraftLine[]): DocLine[] {
 
 /** Rates offered in VAT lists: the usual ones, the company's own, and whatever the record already carries. */
 function vatRates(store: Store, current: string) {
-  return Array.from(new Set(['0', '5.5', '10', '18', '19.25', '20', String(store.defaultVat), current])).filter(Boolean).sort((a, b) => Number(a) - Number(b))
+  return Array.from(new Set([...vatRatesOf(store).map(String), String(store.defaultVat), current])).filter(Boolean).sort((a, b) => Number(a) - Number(b))
 }
 
 function periodsOf(store: Store) {
@@ -264,7 +264,7 @@ function SaveButton({ label, onClick, disabled }: { label: string; onClick: () =
 function LinesEditor({ ctx, lines, onChange, atCost }: ViewProps & { lines: DraftLine[]; onChange: (lines: DraftLine[]) => void; atCost?: boolean }) {
   const { tr, store, money } = ctx
   const update = (index: number, patch: Partial<DraftLine>) => onChange(lines.map((line, position) => position === index ? { ...line, ...patch } : line))
-  const totals = docTotals(parseLines(store, lines))
+  const totals = docTotals(parseLines(store, lines), store.currency)
   return (
     <div className="sg-lines">
       <div className="sg-line sg-line-head"><span>{tr('Article', 'Item')}</span><span>{tr('Qté', 'Qty')}</span><span>{tr('PU HT', 'Unit price')}</span><span>{tr('Total HT', 'Net total')}</span><span /></div>
@@ -353,7 +353,7 @@ function ClientsView({ ctx, origin }: ViewProps & { origin: Origin }) {
                 <tr key={client.code}>
                   <td><strong className="invoice-id">{client.code}</strong></td><td>{client.name}</td><td>{client.city}</td><td>{client.email}</td>
                   <td className="sg-num">{docs.filter((doc) => doc.client === client.code).length}</td>
-                  <td className="sg-num">{money(tiersBalance(store.entries, ACCOUNTS.clients, client.code))}</td>
+                  <td className="sg-num">{money(tiersBalance(store.entries, accountsOf(store).clients, client.code))}</td>
                   <td><div className="row-actions">
                     <button className="reject-button" type="button" aria-label={`${tr('Modifier', 'Edit')} ${client.name}`} onClick={() => setForm(client)}><Pencil size={13} /></button>
                     <button className="reject-button" type="button" aria-label={`${tr('Supprimer', 'Delete')} ${client.name}`} onClick={() => remove(client)}><Trash2 size={13} /></button>
@@ -402,7 +402,7 @@ function SalesDocsView({ ctx, origin }: ViewProps & { origin: Origin }) {
     ctx.apply({ ...store, salesDocs: store.salesDocs.filter((item) => item.id !== doc.id) })
     ctx.audit('Deleted sales document', doc.id)
   }
-  const total = docs.reduce((sum, doc) => sum + docTotals(doc.lines).ttc, 0)
+  const total = docs.reduce((sum, doc) => sum + docTotals(doc.lines, store.currency).ttc, 0)
 
   return (
     <Panel title={tr('Documents de vente', 'Sales documents')} subtitle={tr('Devis, commandes, bons de livraison, factures et tickets', 'Quotes, orders, delivery notes, invoices and tickets')}>
@@ -419,7 +419,7 @@ function SalesDocsView({ ctx, origin }: ViewProps & { origin: Origin }) {
           <thead><tr><th>N°</th><th>TYPE</th><th>{tr('CLIENT', 'CUSTOMER')}</th><th>DATE</th><th className="sg-num">{tr('TOTAL HT', 'NET')}</th><th className="sg-num">{tr('TOTAL TTC', 'GROSS')}</th><th>{tr('ÉTAT', 'STATUS')}</th><th /></tr></thead>
           <tbody>
             {docs.map((doc) => {
-              const totals = docTotals(doc.lines)
+              const totals = docTotals(doc.lines, store.currency)
               const target = nextSalesType(doc.type)
               return (
                 <tr key={doc.id}>
@@ -508,20 +508,20 @@ function InterrogationView({ ctx }: ViewProps) {
       </div>
       {mode === 'supplier' && <>
         <div className="sg-stats">
-          <Stat label={tr('Achats facturés HT', 'Invoiced purchases, net')} value={money(sum(purchases.filter((doc) => doc.posted).map((doc) => docTotals(doc.lines).ht)))} />
-          <Stat label={tr('Solde dû', 'Balance due')} value={money(tiersBalance(store.entries, ACCOUNTS.suppliers, key))} />
+          <Stat label={tr('Achats facturés HT', 'Invoiced purchases, net')} value={money(sum(purchases.filter((doc) => doc.posted).map((doc) => docTotals(doc.lines, store.currency).ht)))} />
+          <Stat label={tr('Solde dû', 'Balance due')} value={money(tiersBalance(store.entries, accountsOf(store).suppliers, key))} />
           <Stat label={tr('Commandes en cours', 'Open orders')} value={String(purchases.filter((doc) => !doc.posted).length)} />
         </div>
         {purchases.length ? <div className="table-scroll">
           <table className="data-table sg-table">
             <thead><tr><th>N°</th><th>TYPE</th><th>DATE</th><th className="sg-num">{tr('TOTAL TTC', 'GROSS')}</th></tr></thead>
-            <tbody>{purchases.map((doc) => <tr key={doc.id}><td><strong className="invoice-id">{doc.id}</strong></td><td>{tr(purchaseTypes[doc.type].fr, purchaseTypes[doc.type].en)}</td><td className="date-cell">{day(doc.date)}</td><td className="sg-num">{money(docTotals(doc.lines).ttc)}</td></tr>)}</tbody>
+            <tbody>{purchases.map((doc) => <tr key={doc.id}><td><strong className="invoice-id">{doc.id}</strong></td><td>{tr(purchaseTypes[doc.type].fr, purchaseTypes[doc.type].en)}</td><td className="date-cell">{day(doc.date)}</td><td className="sg-num">{money(docTotals(doc.lines, store.currency).ttc)}</td></tr>)}</tbody>
           </table>
         </div> : <div className="empty-state">{tr('Aucun mouvement.', 'No activity.')}</div>}
       </>}
       {mode === 'client' ? <div className="sg-stats">
-        <Stat label={tr('Chiffre d’affaires HT', 'Net revenue')} value={money(sum(invoiced.map((doc) => docTotals(doc.lines).ht)))} />
-        <Stat label={tr('Solde comptable', 'Ledger balance')} value={money(tiersBalance(store.entries, ACCOUNTS.clients, key))} />
+        <Stat label={tr('Chiffre d’affaires HT', 'Net revenue')} value={money(sum(invoiced.map((doc) => docTotals(doc.lines, store.currency).ht)))} />
+        <Stat label={tr('Solde comptable', 'Ledger balance')} value={money(tiersBalance(store.entries, accountsOf(store).clients, key))} />
         <Stat label={tr('Documents en cours', 'Open documents')} value={String(docs.length - invoiced.length)} />
       </div> : article && <div className="sg-stats">
         <Stat label={tr('Stock réel', 'Stock on hand')} value={String(article.stock)} />
@@ -537,7 +537,7 @@ function InterrogationView({ ctx }: ViewProps) {
               <tr key={doc.id}>
                 <td><strong className="invoice-id">{doc.id}</strong></td><td>{tr(salesTypes[doc.type].fr, salesTypes[doc.type].en)}</td>
                 <td>{tiersName(store, doc.client) || tr('Client comptoir', 'Walk-in customer')}</td><td className="date-cell">{day(doc.date)}</td>
-                <td className="sg-num">{mode === 'client' ? money(docTotals(doc.lines).ttc) : sum(doc.lines.filter((line) => line.ref === key).map((line) => line.qty))}</td>
+                <td className="sg-num">{mode === 'client' ? money(docTotals(doc.lines, store.currency).ttc) : sum(doc.lines.filter((line) => line.ref === key).map((line) => line.qty))}</td>
               </tr>
             ))}
           </tbody>
@@ -564,7 +564,7 @@ function SupplierInvoiceGrid({ ctx }: ViewProps) {
   const quantity = sum(filled.map((row) => num(row.qty)))
   const net = sum(filled.map((row) => num(row.qty) * num(row.price)))
   const total = round2(net * (1 + store.defaultVat / 100))
-  const previous = known ? tiersBalance(store.entries, ACCOUNTS.suppliers, known.code) : 0
+  const previous = known ? tiersBalance(store.entries, accountsOf(store).suppliers, known.code) : 0
   const isNew = (name: string) => Boolean(name.trim()) && !store.articles.some((article) => same(article.ref, name) || same(article.name, name))
 
   // A fresh empty line appears as soon as the last one is used, as on a paper form that never runs out.
@@ -706,7 +706,7 @@ function PurchasesView({ ctx }: ViewProps) {
                   <td><button className="text-button" type="button" onClick={() => setFilter(filter === item.code ? '' : item.code)}>{item.name}</button></td><td>{item.city}</td>
                   <td className="sg-num">{store.purchaseDocs.filter((doc) => doc.supplier === item.code).length}</td>
                   <td className="sg-num">{store.supplierInvoices.filter((invoice) => invoice.status === 'needs_review' && invoice.supplier.trim().toLowerCase() === item.name.toLowerCase()).length || ''}</td>
-                  <td className="sg-num">{money(tiersBalance(store.entries, ACCOUNTS.suppliers, item.code))}</td>
+                  <td className="sg-num">{money(tiersBalance(store.entries, accountsOf(store).suppliers, item.code))}</td>
                   <td><div className="row-actions">
                     <button className="reject-button" type="button" aria-label={`${tr('Modifier', 'Edit')} ${item.name}`} onClick={() => setForm(item)}><Pencil size={13} /></button>
                     <button className="reject-button" type="button" aria-label={`${tr('Supprimer', 'Delete')} ${item.name}`} onClick={() => removeSupplier(item)}><Trash2 size={13} /></button>
@@ -747,7 +747,7 @@ function PurchasesView({ ctx }: ViewProps) {
               {docs.map((doc) => (
                 <tr key={doc.id}>
                   <td><strong className="invoice-id">{doc.id}</strong></td><td>{tr(purchaseTypes[doc.type].fr, purchaseTypes[doc.type].en)}</td><td>{tiersName(store, doc.supplier)}</td>
-                  <td className="date-cell">{day(doc.date)}</td><td className="sg-num">{money(docTotals(doc.lines).ttc)}</td>
+                  <td className="date-cell">{day(doc.date)}</td><td className="sg-num">{money(docTotals(doc.lines, store.currency).ttc)}</td>
                   <td>{doc.posted ? <Badge tone="good">{tr('Comptabilisé', 'Posted')}</Badge> : <Badge>{tr('En commande', 'On order')}</Badge>}</td>
                   <td>{doc.type === 'commande' && <div className="row-actions">
                     <button className="approve-button" type="button" onClick={() => invoice(doc)}>{tr('Réceptionner et facturer', 'Receive and invoice')}<ArrowRight size={12} /></button>
@@ -988,7 +988,7 @@ function CounterView({ ctx }: ViewProps) {
   const [payment, setPayment] = useState<Payment>('cash')
   const [client, setClient] = useState('')
   const tickets = store.salesDocs.filter((doc) => doc.type === 'ticket' && doc.date === today)
-  const total = (mode?: Payment) => sum(tickets.filter((doc) => !mode || doc.payment === mode).map((doc) => docTotals(doc.lines).ttc))
+  const total = (mode?: Payment) => sum(tickets.filter((doc) => !mode || doc.payment === mode).map((doc) => docTotals(doc.lines, store.currency).ttc))
 
   function cashIn() {
     const parsed = parseLines(store, lines)
@@ -1000,7 +1000,7 @@ function CounterView({ ctx }: ViewProps) {
     const next = saveSalesDoc(store, { type: 'ticket', client, date: today, lines: parsed, origin: 'caisse', payment })
     const saved = next.salesDocs[next.salesDocs.length - 1]
     ctx.apply(next)
-    ctx.audit('Recorded counter sale', `${saved.id} · ${money(docTotals(parsed).ttc)}`)
+    ctx.audit('Recorded counter sale', `${saved.id} · ${money(docTotals(parsed, store.currency).ttc)}`)
     ctx.notify(tr(`Ticket ${saved.id} encaissé et comptabilisé dans le journal de caisse.`, `Ticket ${saved.id} cashed in and posted to the cash journal.`))
     setLines([emptyLine])
     setClient('')
@@ -1028,7 +1028,7 @@ function CounterView({ ctx }: ViewProps) {
         </div>
         {tickets.length > 0 && <div className="sg-list">
           {tickets.map((doc) => (
-            <div key={doc.id}><strong>{doc.id} · {money(docTotals(doc.lines).ttc)} · {doc.payment === 'card' ? tr('Carte', 'Card') : tr('Espèces', 'Cash')}</strong><span>{doc.lines.map((line) => `${line.qty} × ${line.ref}`).join(', ')}</span></div>
+            <div key={doc.id}><strong>{doc.id} · {money(docTotals(doc.lines, store.currency).ttc)} · {doc.payment === 'card' ? tr('Carte', 'Card') : tr('Espèces', 'Cash')}</strong><span>{doc.lines.map((line) => `${line.qty} × ${line.ref}`).join(', ')}</span></div>
           ))}
         </div>}
       </Panel>
@@ -1163,13 +1163,13 @@ function GuidedPieceView({ ctx }: ViewProps) {
   const [amount, setAmount] = useState('')
   const [rate, setRate] = useState(String(store.defaultVat))
   const purchase = kind === 'achat'
-  const ht = round2(num(amount))
-  const vat = round2(ht * num(rate) / 100)
-  const ttc = round2(ht + vat)
+  const ht = roundAmount(store, num(amount))
+  const vat = roundAmount(store, ht * num(rate) / 100)
+  const ttc = roundAmount(store, ht + vat)
   const due = addDays(date || isoDate(), 30)
   const lines: PieceLine[] = purchase
-    ? [{ account, debit: ht, credit: 0 }, { account: ACCOUNTS.vatDeductible, debit: vat, credit: 0 }, { account: ACCOUNTS.suppliers, tiers, debit: 0, credit: ttc, due }]
-    : [{ account: ACCOUNTS.clients, tiers, debit: ttc, credit: 0, due }, { account, debit: 0, credit: ht }, { account: ACCOUNTS.vatCollected, debit: 0, credit: vat }]
+    ? [{ account, debit: ht, credit: 0 }, { account: accountsOf(store).vatDeductible, debit: vat, credit: 0 }, { account: accountsOf(store).suppliers, tiers, debit: 0, credit: ttc, due }]
+    : [{ account: accountsOf(store).clients, tiers, debit: ttc, credit: 0, due }, { account, debit: 0, credit: ht }, { account: accountsOf(store).vatCollected, debit: 0, credit: vat }]
 
   function save() {
     if (!tiers || !account || !date || ht <= 0) {
@@ -1216,7 +1216,7 @@ function BankOperationView({ ctx }: ViewProps) {
   const [date, setDate] = useState(isoDate())
   const [label, setLabel] = useState('')
   const [amount, setAmount] = useState('')
-  const [account, setAccount] = useState<string>(ACCOUNTS.clients)
+  const [account, setAccount] = useState<string>(accountsOf(store).clients)
   const [tiers, setTiers] = useState('')
   const parties = tiersOptions(store, account)
 
@@ -1228,8 +1228,8 @@ function BankOperationView({ ctx }: ViewProps) {
     }
     const counterpart = { account, tiers: tiers || undefined }
     const lines: PieceLine[] = direction === 'in'
-      ? [{ account: ACCOUNTS.bank, debit: value, credit: 0 }, { ...counterpart, debit: 0, credit: value }]
-      : [{ ...counterpart, debit: value, credit: 0 }, { account: ACCOUNTS.bank, debit: 0, credit: value }]
+      ? [{ account: accountsOf(store).bank, debit: value, credit: 0 }, { ...counterpart, debit: 0, credit: value }]
+      : [{ ...counterpart, debit: value, credit: 0 }, { account: accountsOf(store).bank, debit: 0, credit: value }]
     if (!postManual(ctx, 'BQ', date, label.trim(), lines)) return
     setLabel('')
     setAmount('')
@@ -1237,14 +1237,14 @@ function BankOperationView({ ctx }: ViewProps) {
 
   return (
     <>
-      <Panel title={tr('Saisie des opérations bancaires', 'Bank operations')} subtitle={tr('La contrepartie 512 Banque est générée automatiquement', 'The 512 Bank counterpart is generated automatically')}>
+      <Panel title={tr('Saisie des opérations bancaires', 'Bank operations')} subtitle={tr(`La contrepartie ${accountsOf(store).bank} Banque est générée automatiquement`, `The ${accountsOf(store).bank} Bank counterpart is generated automatically`)}>
         <Chips value={direction} onChange={setDirection} options={[['in', tr('Encaissement', 'Receipt')], ['out', tr('Décaissement', 'Payment')]]} />
         <div className="sg-form">
           <label>Date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
           <label>{tr('Libellé', 'Label')}<input value={label} onChange={(event) => setLabel(event.target.value)} /></label>
           <label>{tr('Montant', 'Amount')}<input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
           <label>{tr('Compte de contrepartie', 'Counterpart account')}<select value={account} onChange={(event) => { setAccount(event.target.value); setTiers('') }}>
-            {store.accounts.filter((item) => item.number !== ACCOUNTS.bank).map((item) => <option key={item.number} value={item.number}>{item.number} · {item.label}</option>)}
+            {store.accounts.filter((item) => item.number !== accountsOf(store).bank).map((item) => <option key={item.number} value={item.number}>{item.number} · {item.label}</option>)}
           </select></label>
           {parties.length > 0 && <label>{tr('Tiers', 'Party')}<select value={tiers} onChange={(event) => setTiers(event.target.value)}>
             <option value="">—</option>
@@ -1405,7 +1405,7 @@ function TiersView({ ctx }: ViewProps) {
   const { tr, store, money, day } = ctx
   const [mode, setMode] = useState<'clients' | 'suppliers'>('clients')
   const today = isoDate()
-  const account = mode === 'clients' ? ACCOUNTS.clients : ACCOUNTS.suppliers
+  const account = mode === 'clients' ? accountsOf(store).clients : accountsOf(store).suppliers
   const open = store.entries
     .filter((entry) => entry.account === account && entry.tiers && !entry.letter && (mode === 'clients' ? entry.debit > 0 : entry.credit > 0))
     .sort((a, b) => (a.due ?? a.date).localeCompare(b.due ?? b.date))
@@ -1594,7 +1594,7 @@ function ReportsView({ ctx }: ViewProps) {
   const { tr, store, money } = ctx
   const [report, setReport] = useState<'balance' | 'ledger' | 'journal' | 'vat'>('balance')
   const [month, setMonth] = useState('all')
-  const [account, setAccount] = useState<string>(ACCOUNTS.clients)
+  const [account, setAccount] = useState<string>(accountsOf(store).clients)
   const [journal, setJournal] = useState('all')
   const entries = store.entries.filter((entry) => month === 'all' || period(entry.date) === month)
   const titles = { balance: tr('Balance des comptes', 'Trial balance'), ledger: tr('Grand livre', 'General ledger'), journal: tr('Journal', 'Journal'), vat: tr('Déclaration de TVA', 'VAT return') }
@@ -1605,8 +1605,9 @@ function ReportsView({ ctx }: ViewProps) {
     return { ...item, debit, credit, solde: round2(debit - credit) }
   }).filter((row) => row.debit || row.credit)
   const movement = (prefix: string, side: 1 | -1) => sum(entries.filter((entry) => entry.account.startsWith(prefix)).map((entry) => side * (entry.credit - entry.debit)))
-  const collected = movement('4457', 1)
-  const deductible = movement('4456', -1)
+  const { prefixes } = chartOf(store)
+  const collected = movement(prefixes.vatCollected, 1)
+  const deductible = movement(prefixes.vatDeductible, -1)
   const listed = report === 'ledger' ? entries.filter((entry) => entry.account === account) : entries.filter((entry) => journal === 'all' || entry.journal === journal)
   const fileName = `${titles[report]} ${month === 'all' ? '' : month}`.trim()
 
@@ -1642,9 +1643,9 @@ function ReportsView({ ctx }: ViewProps) {
       {(report === 'ledger' || report === 'journal') && <EntriesTable ctx={ctx} entries={listed} />}
       {report === 'vat' && <div className="sg-stats">
         <Stat label={tr('Ventes HT (classe 7)', 'Net sales (class 7)')} value={money(movement('7', 1))} />
-        <Stat label={tr('TVA collectée (4457)', 'VAT collected (4457)')} value={money(collected)} />
+        <Stat label={tr(`TVA collectée (${prefixes.vatCollected})`, `VAT collected (${prefixes.vatCollected})`)} value={money(collected)} />
         <Stat label={tr('Achats HT (classe 6)', 'Net purchases (class 6)')} value={money(movement('6', -1))} />
-        <Stat label={tr('TVA déductible (4456)', 'Deductible VAT (4456)')} value={money(deductible)} />
+        <Stat label={tr(`TVA déductible (${prefixes.vatDeductible})`, `Deductible VAT (${prefixes.vatDeductible})`)} value={money(deductible)} />
         <Stat label={collected >= deductible ? tr('TVA à payer', 'VAT payable') : tr('Crédit de TVA', 'VAT credit')} value={money(Math.abs(round2(collected - deductible)))} />
       </div>}
     </Panel>

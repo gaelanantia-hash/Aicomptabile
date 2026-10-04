@@ -1,5 +1,5 @@
 import {
-  ACCOUNTS, addDays, autoLetter, isTiersAccount, nextNumber, postPiece, round2,
+  accountsOf, addDays, autoLetter, isTiersAccount, nextNumber, postPiece, round2,
   type BankLine, type Entry, type Store, type SupplierInvoice,
 } from './sageData.ts'
 
@@ -51,8 +51,8 @@ export function approveSupplierInvoice(store: Store, id: string): Store {
   }
   next = postPiece(next, 'ACH', invoice.date, `${invoice.number} · ${supplier.name}`, [
     { account: invoice.account, debit: round2(invoice.amount - invoice.vat), credit: 0 },
-    { account: ACCOUNTS.vatDeductible, debit: invoice.vat, credit: 0 },
-    { account: ACCOUNTS.suppliers, tiers: supplier.code, debit: 0, credit: invoice.amount, due: invoice.due || addDays(invoice.date, 30) },
+    { account: accountsOf(store).vatDeductible, debit: invoice.vat, credit: 0 },
+    { account: accountsOf(store).suppliers, tiers: supplier.code, debit: 0, credit: invoice.amount, due: invoice.due || addDays(invoice.date, 30) },
   ])
   const piece = next.entries[next.entries.length - 1].piece
   return { ...next, supplierInvoices: next.supplierInvoices.map((item) => item.id === id ? { ...item, status: 'approved', piece } : item) }
@@ -166,8 +166,8 @@ export function matchBankLine(store: Store, lineId: string, entryId: number): St
   const value = Math.abs(line.amount)
   const counterpart = { account: open.account, tiers: open.tiers }
   const next = postPiece(store, 'BQ', line.date, line.label, line.amount > 0
-    ? [{ account: ACCOUNTS.bank, debit: value, credit: 0 }, { ...counterpart, debit: 0, credit: value }]
-    : [{ ...counterpart, debit: value, credit: 0 }, { account: ACCOUNTS.bank, debit: 0, credit: value }])
+    ? [{ account: accountsOf(store).bank, debit: value, credit: 0 }, { ...counterpart, debit: 0, credit: value }]
+    : [{ ...counterpart, debit: value, credit: 0 }, { account: accountsOf(store).bank, debit: 0, credit: value }])
   const piece = next.entries[next.entries.length - 1].piece
   const settled = (open.debit || open.credit) === value
   const letter = freeLetter(next.entries)
@@ -185,8 +185,8 @@ export function postBankLine(store: Store, lineId: string, account: string, tier
   const value = Math.abs(line.amount)
   const counterpart = { account, tiers }
   const next = postPiece(store, 'BQ', line.date, line.label, line.amount > 0
-    ? [{ account: ACCOUNTS.bank, debit: value, credit: 0 }, { ...counterpart, debit: 0, credit: value }]
-    : [{ ...counterpart, debit: value, credit: 0 }, { account: ACCOUNTS.bank, debit: 0, credit: value }])
+    ? [{ account: accountsOf(store).bank, debit: value, credit: 0 }, { ...counterpart, debit: 0, credit: value }]
+    : [{ ...counterpart, debit: value, credit: 0 }, { account: accountsOf(store).bank, debit: 0, credit: value }])
   return { ...next, bankLines: next.bankLines.map((item) => item.id === lineId ? { ...item, piece: next.entries[next.entries.length - 1].piece } : item) }
 }
 

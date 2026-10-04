@@ -2,11 +2,14 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { crc32 } from 'node:zlib'
 import {
-  ACCOUNTS, advancePurchaseDoc, advanceSalesDoc, autoLetter, completeWorkOrder, createEmptyStore, createStore, docTotals, missingComponent,
+  accountsOf, advancePurchaseDoc, advanceSalesDoc, autoLetter, completeWorkOrder, createEmptyStore, createStore, docTotals, missingComponent,
   postPiece, registerSupplierInvoice, round2, sageModules, saveSalesDoc, shortage, supplierStockAnalysis, tiersBalance,
 } from '../src/sageData.ts'
 import { fromSnapshot, toSnapshot } from '../src/sageSnapshot.ts'
 import { buildXlsx } from '../src/xlsx.ts'
+
+// The sample company without a country, like these tests' companies, uses the French chart of accounts.
+const ACCOUNTS = accountsOf({ chart: 'pcg' })
 
 const stock = (store: ReturnType<typeof createStore>, ref: string) => store.articles.find((article) => article.ref === ref)!.stock
 const pieceBalances = (store: ReturnType<typeof createStore>) => {
@@ -116,7 +119,7 @@ test('a supplier invoice typed as on paper creates supplier and items, receives 
   ]
   const lines = paper.map(([article, qty, price]) => ({ article, qty, price }))
   // The supplier was already owed 10 548 200 before this invoice.
-  let store = createEmptyStore('El Pacha', 'XAF', 0)
+  let store = createEmptyStore('El Pacha', { currency: 'XAF', defaultVat: 0 })
   store = registerSupplierInvoice(store, { date: '2026-09-01', supplier: 'Tatang CALUS', lines: [{ article: 'Solde antérieur', qty: 1, price: 10548200 }] })
   assert.equal(tiersBalance(store.entries, ACCOUNTS.suppliers, 'F0001'), 10548200)
 
@@ -147,7 +150,7 @@ test('a supplier invoice typed as on paper creates supplier and items, receives 
 })
 
 test('currency and default VAT belong to the company and survive saving', () => {
-  const store = fromSnapshot(JSON.parse(JSON.stringify(toSnapshot(createEmptyStore('X', 'XAF', 0)))))
+  const store = fromSnapshot(JSON.parse(JSON.stringify(toSnapshot(createEmptyStore('X', { currency: 'XAF', defaultVat: 0 })))))
   assert.deepEqual([store.currency, store.defaultVat], ['XAF', 0])
   assert.deepEqual([fromSnapshot({}).currency, fromSnapshot({}).defaultVat], ['EUR', 20])
 })

@@ -8,7 +8,7 @@ import {
   filterSupplierInvoices, monthlySales, openItems, overview, parseBankCsv, postBankLine, rejectSupplierInvoice, saveSupplierInvoice, suggestBankMatch, type ForecastWeek, type QualityIssue,
 } from './financeData'
 import { readInvoiceDocument } from './invoiceImport'
-import { isoDate, isTiersAccount, round2, sageModules, tiersName, type ModuleId, type Store, type SupplierInvoice } from './sageData'
+import { chartOf, isoDate, isTiersAccount, round2, sageModules, tiersName, type ModuleId, type Store, type SupplierInvoice } from './sageData'
 import { downloadXlsx, type Sheet } from './xlsx'
 import './FinanceSections.css'
 
@@ -361,7 +361,7 @@ function BankSection({ store, apply, tr, money, day, notify, audit }: FinancePro
                   <span className="fin-pick">
                     <select aria-label={`${tr('Compte', 'Account')} ${line.id}`} value={picked.account} onChange={(event) => setChoice({ ...choice, [line.id]: { account: event.target.value, tiers: '' } })}>
                       <option value="">{tr('Compte…', 'Account…')}</option>
-                      {store.accounts.filter((account) => !account.number.startsWith('512')).map((account) => <option key={account.number} value={account.number}>{account.number} · {account.label}</option>)}
+                      {store.accounts.filter((account) => !account.number.startsWith(chartOf(store).prefixes.bank)).map((account) => <option key={account.number} value={account.number}>{account.number} · {account.label}</option>)}
                     </select>
                     {parties.length > 0 && <select aria-label={`${tr('Tiers', 'Party')} ${line.id}`} value={picked.tiers} onChange={(event) => setChoice({ ...choice, [line.id]: { ...picked, tiers: event.target.value } })}>
                       <option value="">{tr('Tiers…', 'Party…')}</option>
