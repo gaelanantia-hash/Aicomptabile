@@ -7,7 +7,7 @@ import type { Device } from './sync.ts'
 /** Signed by the licence service after each successful check. `validUntil` is how long the app may run without reaching it. */
 export type Activation = { t: 'act'; lic: string; customer: string; deviceId: string; expires: string | null; validUntil: string }
 type Stored = { code: string; token?: string }
-export type LicenseOptions = { serverUrl: string; publicKey: string; device: Device; appVersion: string; file: string; devMode: boolean; trialUntil?: string; now?: () => number }
+export type LicenseOptions = { serverUrl: string; publicKey: string; device: Device; appVersion: string; file: string; devMode: boolean; trialUntil?: string; clockFile?: string; now?: () => number }
 export type LicenseClient = ReturnType<typeof createLicenseClient>
 
 /** Verifies an Ed25519-signed token with the public key shipped in the app. The private key never leaves the licence service. */
@@ -33,7 +33,10 @@ export function evaluate(token: string | undefined, publicKey: string, deviceId:
   return { valid: true, ...details }
 }
 
-export function createLicenseClient({ serverUrl, publicKey, device, appVersion, file, devMode, trialUntil, now = Date.now }: LicenseOptions) {
+/** Answers from the service that withdraw the licence. Anything else (outage, rate limit, proxy page) counts as unreachable. */
+const refusals: LicenseReason[] = ['invalid', 'expired', 'revoked', 'device_limit']
+
+export function createLicenseClient({ serverUrl, publicKey, device, appVersion, file, devMode, trialUntil, clockFile, now = Date.now }: LicenseOptions) {
   const read = (): Stored | null => {
     try {
       return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as Stored : null
@@ -55,7 +58,29 @@ export function createLicenseClient({ serverUrl, publicKey, device, appVersion, 
     })
     const payload = await response.json().catch(() => ({})) as { token?: string; error?: string }
     if (response.ok && payload.token) return { token: payload.token }
-    return { error: (['expired', 'revoked', 'device_limit'].includes(payload.error ?? '') ? payload.error : 'invalid') as LicenseReason }
+    if ((response.status === 403 || response.status === 404) && refusals.includes(payload.error as LicenseReason)) return { error: payload.error as LicenseReason }
+    throw new Error(`Licence service answered ${response.status}.`)
+  }
+
+  // The trial end is compared with the latest date this PC has shown, so setting the system clock back does not extend it.
+  function trialNow() {
+    const current = now()
+    if (!clockFile) return current
+    let seen = 0
+    try {
+      seen = Number((JSON.parse(readFileSync(clockFile, 'utf8')) as { seen?: number }).seen) || 0
+    } catch {
+      // First start, or the file is unreadable: start from today.
+    }
+    if (current - seen > 60_000) {
+      try {
+        mkdirSync(dirname(clockFile), { recursive: true })
+        writeFileSync(clockFile, JSON.stringify({ seen: current }))
+      } catch {
+        // Not writable: the check still uses the latest date read.
+      }
+    }
+    return Math.max(current, seen)
   }
 
   function state(): LicenseState {
@@ -63,7 +88,7 @@ export function createLicenseClient({ serverUrl, publicKey, device, appVersion, 
     if (!serverUrl || !publicKey) {
       // Trial builds carry an end date instead of a licence service: they run freely until that day, then stop.
       if (trialUntil && /^\d{4}-\d{2}-\d{2}$/.test(trialUntil)) {
-        return Date.parse(`${trialUntil}T23:59:59`) >= now() ? { valid: true, trial: true, expires: trialUntil } : { valid: false, trial: true, reason: 'expired', expires: trialUntil }
+        return Date.parse(`${trialUntil}T23:59:59`) >= trialNow() ? { valid: true, trial: true, expires: trialUntil } : { valid: false, trial: true, reason: 'expired', expires: trialUntil }
       }
       return devMode ? { valid: true, dev: true } : { valid: false, reason: 'unreachable' }
     }

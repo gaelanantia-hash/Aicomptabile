@@ -24,7 +24,8 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: t
 const userData = app.getPath('userData')
 const appRoot = app.getAppPath()
 const webRoot = join(appRoot, 'dist')
-const config = loadConfig(join(appRoot, 'desktop.config.json'))
+// Environment overrides are for development and tests only: in an installed build they would let anyone change the licence settings.
+const config = loadConfig(join(appRoot, 'desktop.config.json'), devMode ? process.env : {})
 const contentSecurityPolicy = [
   "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:", "img-src 'self' data: blob:", "connect-src 'self'", "worker-src 'self' blob:",
@@ -55,7 +56,7 @@ const vault = createVault(join(userData, 'auth.bin'), {
   encrypt: (text) => safeStorage.encryptString(text),
   decrypt: (data) => safeStorage.decryptString(data),
 })
-const license = createLicenseClient({ serverUrl: config.licenseServerUrl, publicKey: config.licensePublicKey, device, appVersion: app.getVersion(), file: join(userData, 'license.json'), devMode, trialUntil: config.trialUntil })
+const license = createLicenseClient({ serverUrl: config.licenseServerUrl, publicKey: config.licensePublicKey, device, appVersion: app.getVersion(), file: join(userData, 'license.json'), devMode, trialUntil: config.trialUntil, clockFile: join(userData, 'clock.json') })
 // Working without a Google account (data on this PC only) is offered to developers and to trial builds, never to licensed installs.
 const localAllowed = () => devMode || license.state().trial === true
 // The installer carries the OAuth client in desktop.config.json. When run from the project folder without one, it can be typed into Settings instead.

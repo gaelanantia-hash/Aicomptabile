@@ -119,3 +119,22 @@ test('without a configured service, only development builds run', () => {
   assert.deepEqual(createLicenseClient({ ...options, devMode: true }).state(), { valid: true, dev: true })
   assert.equal(createLicenseClient({ ...options, devMode: false }).state().valid, false)
 })
+
+test('an outage or rate limit on the service does not withdraw a working licence', async () => {
+  const license = client()
+  reply = { status: 200, body: { token: token() } }
+  await license.activate('AICOM-X')
+  for (const failure of [{ status: 500, body: { error: 'server_error' } }, { status: 503, body: {} }, { status: 429, body: {} }, { status: 404, body: { error: 'not_found' } }]) {
+    reply = failure
+    assert.equal((await license.check()).valid, true, `status ${failure.status}`)
+  }
+  reply = { status: 503, body: {} }
+  assert.equal((await client().activate('AICOM-X')).reason, 'unreachable')
+})
+
+test('setting the system clock back does not extend a trial', () => {
+  const clockFile = join(mkdtempSync(join(tmpdir(), 'aicom-clock-')), 'clock.json')
+  const options = { serverUrl: '', publicKey: '', device, appVersion: '1.0.0', devMode: false, file: join(tmpdir(), 'aicom-none.json'), trialUntil: '2026-10-31', clockFile }
+  assert.equal(createLicenseClient({ ...options, now: () => Date.parse('2026-11-02T08:00:00') }).state().valid, false)
+  assert.equal(createLicenseClient({ ...options, now: () => Date.parse('2026-10-15T08:00:00') }).state().reason, 'expired')
+})
