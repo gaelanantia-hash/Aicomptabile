@@ -81,11 +81,12 @@ test('posted entries can be matched but never changed or deleted, and none can b
   assert.equal(db.save({ entries: { 1: entry(1, { letter: 'AA' }), 2: entry(2, { account: '101300', debit: 0, credit: 100 }) }, settings: settings() }, actor, 'Matched'), 1)
   assert.throws(() => db.save({ entries: { 1: entry(1, { letter: 'AA', debit: 90 }), 2: entry(2, { account: '101300', debit: 0, credit: 100 }) }, settings: settings() }, actor, 'Edited'), LedgerError)
   assert.throws(() => db.save({ entries: { 1: entry(1, { letter: 'AA' }) }, settings: settings() }, actor, 'Deleted'), LedgerError)
+  db.save({ entries: { 1: entry(1, { letter: 'AA' }), 2: entry(2, { account: '101300', debit: 0, credit: 100 }) }, settings: settings(['2026-09']) }, actor, 'Closed September')
   assert.throws(() => db.save({ entries: { 1: entry(1, { letter: 'AA' }), 2: entry(2, { account: '101300', debit: 0, credit: 100 }), 3: entry(3) }, settings: settings(['2026-09']) }, actor, 'Late'), LedgerError)
   // A refused save writes nothing.
   assert.equal((db.load().entries['1'] as { debit: number }).debit, 100)
   assert.equal(Object.keys(db.load().entries).length, 2)
   // Emptying the whole ledger (sample data) stays possible, and is logged.
-  assert.equal(db.save({ settings: settings() }, actor, 'Emptied company data'), 2)
+  assert.equal(db.save({ settings: settings(['2026-09']) }, actor, 'Emptied company data'), 2)
   db.close()
 })

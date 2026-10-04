@@ -18,10 +18,10 @@ const pieceBalances = (store: ReturnType<typeof createStore>) => {
   return [...balances.values()]
 }
 
-test('the three modules expose the 27 activities of the checklist', () => {
-  assert.deepEqual(sageModules.map((module) => module.groups.reduce((count, group) => count + group.activities.length, 0)), [9, 7, 11])
+test('the three modules expose the 29 activities of the checklist', () => {
+  assert.deepEqual(sageModules.map((module) => module.groups.reduce((count, group) => count + group.activities.length, 0)), [9, 7, 13])
   const ids = sageModules.flatMap((module) => module.groups.flatMap((group) => group.activities.map((activity) => activity.id)))
-  assert.equal(new Set(ids).size, 27)
+  assert.equal(new Set(ids).size, 29)
 })
 
 test('every accounting document of the sample company balances', () => {

@@ -68,7 +68,9 @@ export class LedgerError extends Error {
 function checkLedger(snapshot: Snapshot, existing: Map<string, string>) {
   const ledger = snapshot.entries ?? {}
   const emptied = Object.keys(ledger).length === 0
-  const closed = new Set((snapshot.settings?.closedPeriods as { value?: string[] } | undefined)?.value ?? [])
+  // Periods closed before this save: a year-end piece may be posted and its year locked in one and the same save.
+  const stored = existing.get('settings\u0000closedPeriods')
+  const closed = new Set(stored ? (JSON.parse(stored) as { value?: string[] }).value ?? [] : [])
   const withoutLetter = (text: string) => {
     const { letter: _letter, ...rest } = JSON.parse(text) as Record<string, unknown>
     return JSON.stringify(rest)

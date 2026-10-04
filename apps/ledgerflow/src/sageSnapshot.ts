@@ -4,7 +4,7 @@ import { createEmptyStore, type ChartId, type Store } from './sageData.ts'
 // Which field identifies a record in each collection. One record = one row in the local database and one line in the activity log.
 const keys = {
   clients: 'code', suppliers: 'code', articles: 'ref', salesDocs: 'id', purchaseDocs: 'id', boms: 'ref',
-  workOrders: 'id', accounts: 'number', journals: 'code', entries: 'id', groups: 'name', supplierInvoices: 'id', bankLines: 'id',
+  workOrders: 'id', accounts: 'number', journals: 'code', entries: 'id', groups: 'name', supplierInvoices: 'id', bankLines: 'id', assets: 'id',
 } as const satisfies Partial<Record<keyof Store, string>>
 
 type Collection = keyof typeof keys
@@ -12,7 +12,7 @@ type Collection = keyof typeof keys
 /** Splits the company data into individually stored records. */
 export function toSnapshot(store: Store): Snapshot {
   const snapshot: Snapshot = {
-    settings: { company: { value: store.company }, country: { value: store.country }, chart: { value: store.chart }, currency: { value: store.currency }, defaultVat: { value: store.defaultVat }, closedPeriods: { value: store.closedPeriods }, reminders: { value: store.reminders }, closeTasks: { value: store.closeTasks } },
+    settings: { company: { value: store.company }, country: { value: store.country }, chart: { value: store.chart }, currency: { value: store.currency }, defaultVat: { value: store.defaultVat }, closedPeriods: { value: store.closedPeriods }, reminders: { value: store.reminders }, closeTasks: { value: store.closeTasks }, yearEnd: { value: store.yearEnd } },
   }
   for (const collection of Object.keys(keys) as Collection[]) {
     snapshot[collection] = Object.fromEntries((store[collection] as unknown as Record<string, unknown>[]).map((record) => [String(record[keys[collection]]), record]))
@@ -34,5 +34,6 @@ export function fromSnapshot(snapshot: Snapshot): Store {
     closedPeriods: setting('closedPeriods', []),
     reminders: setting('reminders', {}),
     closeTasks: setting('closeTasks', {}),
+    yearEnd: setting('yearEnd', {}),
   } as Store
 }

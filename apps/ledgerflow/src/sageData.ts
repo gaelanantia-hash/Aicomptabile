@@ -23,7 +23,13 @@ export type WorkOrder = { id: string; ref: string; qty: number; date: string; do
 export type Account = { number: string; label: string }
 export type Journal = { code: string; label: string; type: JournalType }
 /** `reverses` is set on the lines of a piece that cancels an earlier one: it holds that piece's number. */
-export type Entry = { id: number; piece: string; journal: string; date: string; account: string; tiers?: string; label: string; debit: number; credit: number; due?: string; letter?: string; reverses?: string }
+/** Year-end pieces carry where they come from: they are never reversed by hand, and the result-closing one is left out of the income statement. */
+export type EntryOrigin = 'depreciation' | 'inventory' | 'closing' | 'assignment'
+export type Entry = { id: number; piece: string; journal: string; date: string; account: string; tiers?: string; label: string; debit: number; credit: number; due?: string; letter?: string; reverses?: string; origin?: EntryOrigin }
+/** A fixed asset. `years` is the useful life; 0 means not depreciated (land). Amounts are net of recoverable VAT. */
+export type FixedAsset = { id: string; label: string; account: string; acquired: string; cost: number; years: number }
+/** Year-end steps already run for a financial year: the piece each one posted ('—' when there was nothing to post). */
+export type YearEnd = { depreciation?: string; inventory?: string; closing?: string; assignment?: string; result?: number; closingStock?: number }
 export type PieceLine = { account: string; tiers?: string; debit: number; credit: number; due?: string }
 export type CommandGroup = { name: string; activities: string[] }
 /** Supplier invoice received from outside (PDF, XML or typed in), waiting for approval before it is posted. `amount` includes VAT. */
@@ -60,6 +66,9 @@ export type Store = {
   bankLines: BankLine[]
   /** Manual month-end tasks ticked off, per period (YYYY-MM). */
   closeTasks: Record<string, string[]>
+  assets: FixedAsset[]
+  /** Year-end closing progress, per financial year (YYYY). */
+  yearEnd: Record<string, YearEnd>
 }
 
 // The three Sage 100 modules, in the order the data flows: commercial and cash documents end up in accounting.
@@ -137,6 +146,8 @@ export const sageModules: SageModule[] = [
           { id: 'cp.avancees', sage: 'Fonctions avancées', fr: 'Utiliser les fonctions avancées', en: 'Use advanced functions' },
           { id: 'cp.periodiques', sage: 'Traitements périodiques', fr: 'Lancer les traitements périodiques', en: 'Run periodic processing' },
           { id: 'cp.etats', sage: 'États comptables et fiscaux', fr: 'Éditer les états comptables et fiscaux', en: 'Print accounting and tax reports' },
+          { id: 'cp.immobilisations', sage: 'Immobilisations', fr: 'Gérer les immobilisations et les amortissements', en: 'Manage fixed assets and depreciation' },
+          { id: 'cp.cloture', sage: 'Clôture de l’exercice', fr: 'Clôturer l’exercice et affecter le résultat', en: 'Close the financial year and assign the result' },
         ],
       },
     ],
@@ -567,6 +578,8 @@ export function createEmptyStore(company: string, { currency = 'EUR', defaultVat
     supplierInvoices: [],
     bankLines: [],
     closeTasks: {},
+    assets: [],
+    yearEnd: {},
   }
 }
 

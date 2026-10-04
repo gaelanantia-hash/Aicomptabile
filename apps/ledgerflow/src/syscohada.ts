@@ -110,7 +110,8 @@ const yearOf = (entry: Entry) => Number(entry.date.slice(0, 4))
 export function incomeStatement(store: Pick<Store, 'entries'>, year: number) {
   // Debit minus credit, per line.
   const amounts = new Map<string, number>()
-  for (const [account, balance] of balances(store.entries.filter((entry) => yearOf(entry) === year))) {
+  // The piece that closes income and expenses into 13 would cancel them all: the statement shows the year before it.
+  for (const [account, balance] of balances(store.entries.filter((entry) => yearOf(entry) === year && entry.origin !== 'closing'))) {
     if (!isResultAccount(account)) continue
     // An account outside the official lines still counts, under "other" charges or income, so the result stays complete.
     const ref = match(incomeRules, account)?.ref ?? (account.startsWith('6') ? 'RJ' : account.startsWith('7') ? 'TH' : balance > 0 ? 'RP' : 'TO')
@@ -170,9 +171,12 @@ export function balanceSheet(store: Pick<Store, 'entries'>, year: number) {
     else if (side === 'debit') add(assets, 'BJ', balance)
     else add(liabilities, 'DM', -balance)
   }
+  // Income and expenses not yet closed into 13: the year's go to CJ, earlier years' to CH. Once closed, 13 and 12 carry them.
+  let yearResult = 0
   for (const [account, balance] of balances(entries.filter((entry) => yearOf(entry) < year))) if (isResultAccount(account)) earlierResults -= balance
+  for (const [account, balance] of balances(entries.filter((entry) => yearOf(entry) === year))) if (isResultAccount(account)) yearResult -= balance
   add(liabilities, 'CH', earlierResults)
-  add(liabilities, 'CJ', incomeStatement(store, year).result)
+  add(liabilities, 'CJ', yearResult)
 
   const value = (map: Map<string, number>, ref: string) => round2(map.get(ref) ?? 0)
   const lines = (rules: Rule[], map: Map<string, number>, refs: string) => refs.split(' ').map((ref): StatementLine => ({ ref, label: rules.find((rule) => rule.ref === ref)!.label, amount: value(map, ref) }))
