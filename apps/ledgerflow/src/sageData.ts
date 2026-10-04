@@ -22,7 +22,8 @@ export type Bom = { ref: string; components: { ref: string; qty: number }[] }
 export type WorkOrder = { id: string; ref: string; qty: number; date: string; done: boolean }
 export type Account = { number: string; label: string }
 export type Journal = { code: string; label: string; type: JournalType }
-export type Entry = { id: number; piece: string; journal: string; date: string; account: string; tiers?: string; label: string; debit: number; credit: number; due?: string; letter?: string }
+/** `reverses` is set on the lines of a piece that cancels an earlier one: it holds that piece's number. */
+export type Entry = { id: number; piece: string; journal: string; date: string; account: string; tiers?: string; label: string; debit: number; credit: number; due?: string; letter?: string; reverses?: string }
 export type PieceLine = { account: string; tiers?: string; debit: number; credit: number; due?: string }
 export type CommandGroup = { name: string; activities: string[] }
 /** Supplier invoice received from outside (PDF, XML or typed in), waiting for approval before it is posted. `amount` includes VAT. */
@@ -316,6 +317,25 @@ export function postPiece(store: Store, journal: string, date: string, label: st
   const firstId = store.entries.reduce((max, entry) => Math.max(max, entry.id), 0) + 1
   const entries = lines.filter((line) => line.debit || line.credit).map((line, index) => ({ ...line, id: firstId + index, piece, journal, date, label }))
   return { ...store, entries: [...store.entries, ...entries] }
+}
+
+export const isReversed = (store: Store, piece: string) => store.entries.some((entry) => entry.reverses === piece)
+
+/**
+ * Cancels a posted piece as the OHADA Uniform Act on accounting requires: the original stays as it is and a new piece,
+ * dated `date`, carries the same lines with debit and credit swapped. A piece already cancelled, or itself a cancellation, is left alone.
+ */
+export function reversePiece(store: Store, piece: string, date: string): Store {
+  const lines = store.entries.filter((entry) => entry.piece === piece)
+  if (!lines.length || lines.some((entry) => entry.reverses) || isReversed(store, piece)) return store
+  const next = postPiece(store, lines[0].journal, date, `Annulation ${piece} · ${lines[0].label}`, lines.map((entry) => ({ account: entry.account, tiers: entry.tiers, debit: entry.credit, credit: entry.debit })))
+  const reversal = next.entries[next.entries.length - 1].piece
+  return {
+    ...next,
+    entries: next.entries.map((entry) => entry.piece === reversal ? { ...entry, reverses: piece } : entry),
+    // A bank line posted through the cancelled piece goes back to the lines waiting to be posted.
+    bankLines: next.bankLines.map((line) => line.piece === piece ? { ...line, piece: undefined } : line),
+  }
 }
 
 function moveStock(articles: Article[], lines: DocLine[], direction: 1 | -1) {

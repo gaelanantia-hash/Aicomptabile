@@ -23,6 +23,8 @@ export type FinanceProps = {
   audit: (action: string, record: string) => void
   go: (section: FinanceSection | ModuleId | 'audit', activity?: string) => void
   savePdf?: (name: string) => Promise<string | null>
+  /** Administrators alone may reopen a closed period. */
+  admin?: boolean
 }
 
 const period = (date: string) => date.slice(0, 7)
@@ -401,7 +403,7 @@ function BankSection({ store, apply, tr, money, day, notify, audit }: FinancePro
   )
 }
 
-function CloseSection({ store, apply, tr, money, day, notify, audit, go }: FinanceProps) {
+function CloseSection({ store, apply, tr, money, day, notify, audit, go, admin = false }: FinanceProps) {
   const months = Array.from(new Set([...store.entries.map((entry) => period(entry.date)), period(isoDate())])).sort().reverse()
   const [month, setMonth] = useState(months[0])
   const checks = closeChecks(store, month)
@@ -427,6 +429,10 @@ function CloseSection({ store, apply, tr, money, day, notify, audit, go }: Finan
   }
 
   function lock() {
+    if (locked && !admin) {
+      notify(tr('Seul un administrateur peut rouvrir une période verrouillée.', 'Only an administrator can reopen a locked period.'))
+      return
+    }
     if (!locked && progress.done < progress.total && !window.confirm(tr('Toutes les tâches ne sont pas terminées. Verrouiller quand même la période ?', 'Not every task is done. Lock the period anyway?'))) return
     apply({ ...store, closedPeriods: locked ? store.closedPeriods.filter((item) => item !== month) : [...store.closedPeriods, month] })
     audit(locked ? 'Reopened period' : 'Closed period', month)

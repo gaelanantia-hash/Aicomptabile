@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
-import { NewerSchemaError, openDatabase, SCHEMA_VERSION } from './database.ts'
+import { LedgerError, NewerSchemaError, openDatabase, SCHEMA_VERSION } from './database.ts'
 
 const actor = { user: 'cliente@example.com', device: 'PC-1' }
 const tempFile = () => join(mkdtempSync(join(tmpdir(), 'aicom-db-')), 'data.sqlite')
@@ -69,5 +69,23 @@ test('a failed save leaves the previous state intact', () => {
   assert.throws(() => db.save({ clients: { C1: { name: 'B' }, C2: circular } }, actor, 'broken'))
   assert.deepEqual(db.load(), { clients: { C1: { name: 'A' } } })
   assert.equal(db.listAudit(10, 0).total, 1)
+  db.close()
+})
+
+test('posted entries can be matched but never changed or deleted, and none can be added to a closed period', () => {
+  const db = openDatabase(tempFile())
+  const entry = (id: number, extra: object = {}) => ({ id, piece: 'OD-0001', journal: 'OD', date: '2026-09-10', account: '521100', label: 'Apport', debit: 100, credit: 0, ...extra })
+  const settings = (closed: string[] = []) => ({ closedPeriods: { value: closed } })
+  db.save({ entries: { 1: entry(1), 2: entry(2, { account: '101300', debit: 0, credit: 100 }) }, settings: settings() }, actor, 'Posted')
+  // Matching letters may come and go.
+  assert.equal(db.save({ entries: { 1: entry(1, { letter: 'AA' }), 2: entry(2, { account: '101300', debit: 0, credit: 100 }) }, settings: settings() }, actor, 'Matched'), 1)
+  assert.throws(() => db.save({ entries: { 1: entry(1, { letter: 'AA', debit: 90 }), 2: entry(2, { account: '101300', debit: 0, credit: 100 }) }, settings: settings() }, actor, 'Edited'), LedgerError)
+  assert.throws(() => db.save({ entries: { 1: entry(1, { letter: 'AA' }) }, settings: settings() }, actor, 'Deleted'), LedgerError)
+  assert.throws(() => db.save({ entries: { 1: entry(1, { letter: 'AA' }), 2: entry(2, { account: '101300', debit: 0, credit: 100 }), 3: entry(3) }, settings: settings(['2026-09']) }, actor, 'Late'), LedgerError)
+  // A refused save writes nothing.
+  assert.equal((db.load().entries['1'] as { debit: number }).debit, 100)
+  assert.equal(Object.keys(db.load().entries).length, 2)
+  // Emptying the whole ledger (sample data) stays possible, and is logged.
+  assert.equal(db.save({ settings: settings() }, actor, 'Emptied company data'), 2)
   db.close()
 })

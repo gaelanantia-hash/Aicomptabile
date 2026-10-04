@@ -506,7 +506,7 @@ function Dashboard({ cloudSession }: { cloudSession?: CloudSession }) {
             {!cloudSession && <button className="primary-button" onClick={() => setSection('help')} type="button"><Sparkles size={16} />{t.ask}<ArrowRight size={15} /></button>}
           </section>
 
-          {!cloudSession && activeModule && <SageModules module={activeModule.id} locale={locale} store={sageStore} setStore={setSageStore} money={(amount) => currency(amount)} notify={notify} audit={(action, record) => setAuditRows((current) => [['Amélie Martin', action, record, 'Now'], ...current])} onModule={setSection} />}
+          {!cloudSession && activeModule && <SageModules module={activeModule.id} admin locale={locale} store={sageStore} setStore={setSageStore} money={(amount) => currency(amount)} notify={notify} audit={(action, record) => setAuditRows((current) => [['Amélie Martin', action, record, 'Now'], ...current])} onModule={setSection} />}
 
           {!cloudSession && !activeModule && <section className="metrics-grid" aria-label={locale === 'fr' ? 'Indicateurs financiers' : 'Financial overview'}>
             <Metric title={t.revenue} value={currency(284650)} delta="+12.8%" icon={<ArrowUpRight size={16} />} kind="positive" period={t.vsLast} />

@@ -52,6 +52,43 @@ const toAccessRow = (row: AccessRecord): AccessRow => ({ device: row.device, seq
 // Collections whose name starts with "_" belong to the app itself (user accounts). The interface never receives them and cannot overwrite them.
 const reserved = (collection: string) => collection.startsWith('_')
 
+/** A save that would alter the books in a way accounting law forbids. Nothing of that save is written. */
+export class LedgerError extends Error {
+  constructor(detail: string) {
+    super(`Les écritures comptables validées ne peuvent être ni modifiées ni supprimées (${detail}). Passez une écriture d’annulation. / Posted entries cannot be changed or deleted (${detail}); post a reversing entry.`)
+    this.name = 'LedgerError'
+  }
+}
+
+/**
+ * Accounting entries are permanent (OHADA Uniform Act on accounting): once written, only their matching letter may change,
+ * none may be removed, and no new one may fall in a closed period. The one exception is emptying the whole ledger
+ * (removing the sample data), which the interface does after a backup and which the activity log records line by line.
+ */
+function checkLedger(snapshot: Snapshot, existing: Map<string, string>) {
+  const ledger = snapshot.entries ?? {}
+  const emptied = Object.keys(ledger).length === 0
+  const closed = new Set((snapshot.settings?.closedPeriods as { value?: string[] } | undefined)?.value ?? [])
+  const withoutLetter = (text: string) => {
+    const { letter: _letter, ...rest } = JSON.parse(text) as Record<string, unknown>
+    return JSON.stringify(rest)
+  }
+  for (const [id, record] of Object.entries(ledger)) {
+    const before = existing.get(`entries\u0000${id}`)
+    const after = JSON.stringify(record)
+    if (before === undefined) {
+      const date = String((record as { date?: unknown }).date ?? '')
+      if (closed.has(date.slice(0, 7))) throw new LedgerError(`période ${date.slice(0, 7)} clôturée`)
+    } else if (before !== after && withoutLetter(before) !== withoutLetter(after)) throw new LedgerError(`écriture ${id}`)
+  }
+  if (!emptied) {
+    for (const key of existing.keys()) {
+      const [collection, id] = key.split('\u0000')
+      if (collection === 'entries' && !(id in ledger)) throw new LedgerError(`écriture ${id} supprimée`)
+    }
+  }
+}
+
 /** Each line is sealed with the previous line of the same PC, so a line edited or removed by hand in the file shows up on verification. */
 export function accessHash(previous: string, row: Omit<AccessRow, 'hash'>) {
   return createHash('sha256').update([previous, row.device, row.seq, row.at, row.user, row.deviceName, row.event].join('|')).digest('hex')
@@ -111,6 +148,7 @@ export function openDatabase(file: string) {
       return transaction(() => {
         const rows = (db.prepare('SELECT collection, id, data FROM records').all() as { collection: string; id: string; data: string }[]).filter((row) => !reserved(row.collection))
         const existing = new Map(rows.map((row) => [`${row.collection}\u0000${row.id}`, row.data]))
+        checkLedger(snapshot, existing)
         const log = db.prepare('INSERT INTO audit (at, user, device, collection, record_id, action, reason, before, after) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         const upsert = db.prepare('INSERT INTO records (collection, id, data) VALUES (?, ?, ?) ON CONFLICT (collection, id) DO UPDATE SET data = excluded.data')
         const at = new Date().toISOString()

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { crc32 } from 'node:zlib'
 import {
   accountsOf, advancePurchaseDoc, advanceSalesDoc, autoLetter, completeWorkOrder, createEmptyStore, createStore, docTotals, missingComponent,
-  postPiece, registerSupplierInvoice, round2, sageModules, saveSalesDoc, shortage, supplierStockAnalysis, tiersBalance,
+  isReversed, postPiece, registerSupplierInvoice, reversePiece, round2, sageModules, saveSalesDoc, shortage, supplierStockAnalysis, tiersBalance,
 } from '../src/sageData.ts'
 import { fromSnapshot, toSnapshot } from '../src/sageSnapshot.ts'
 import { buildXlsx } from '../src/xlsx.ts'
@@ -198,4 +198,19 @@ test('the Excel export is a valid archive with one sheet per list', () => {
   assert.match(sheet, /<c r="B2"><v>1360\.8<\/v><\/c>/)
   assert.match(sheet, /Été &amp; &lt;Cie&gt;/)
   assert.match(files.get('xl/workbook.xml')!, /<sheet name="Écritures" sheetId="2"/)
+})
+
+test('a posted piece is cancelled by a reversing piece, never deleted', () => {
+  let store = createStore()
+  store = postPiece(store, 'OD', '2026-09-10', 'Erreur de saisie', [{ account: '627000', debit: 40, credit: 0 }, { account: ACCOUNTS.bank, debit: 0, credit: 40 }])
+  const piece = store.entries.at(-1)!.piece
+  const before = store.entries.length
+  const reversed = reversePiece(store, piece, '2026-10-02')
+  assert.equal(reversed.entries.length, before + 2)
+  assert.deepEqual(reversed.entries.slice(0, before), store.entries)
+  assert.deepEqual(reversed.entries.slice(-2).map((entry) => [entry.account, entry.debit, entry.credit, entry.date, entry.reverses]), [['627000', 0, 40, '2026-10-02', piece], [ACCOUNTS.bank, 40, 0, '2026-10-02', piece]])
+  assert.equal(isReversed(reversed, piece), true)
+  // Neither the cancelled piece nor its cancellation can be reversed again.
+  assert.equal(reversePiece(reversed, piece, '2026-10-02'), reversed)
+  assert.equal(reversePiece(reversed, reversed.entries.at(-1)!.piece, '2026-10-02'), reversed)
 })

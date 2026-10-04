@@ -570,9 +570,9 @@ function Workspace({ api, state, store, setStore, locale, setLocale, tr, refresh
           <section className="welcome-row sg-noprint"><div><h1>{title}</h1><p>{activeWorkspace ? tr(activeWorkspace.frText, activeWorkspace.enText) : tr('Chaque enregistrement est sauvegardé sur ce PC, puis envoyé sur votre Google Drive.', 'Every record is saved on this PC, then sent to your Google Drive.')}</p></div></section>
 
           {section === 'audit' && <AuditSection api={api} tr={tr} locale={locale} revision={store} />}
-          {activeModule && <SageModules module={activeModule.id} initialActivity={focus} locale={locale} store={store} setStore={setStore} money={money} notify={notify} audit={onAction} onModule={(id) => go(id)}
+          {activeModule && <SageModules module={activeModule.id} initialActivity={focus} admin={state.auth.user?.role === 'admin'} locale={locale} store={store} setStore={setStore} money={money} notify={notify} audit={onAction} onModule={(id) => go(id)}
             savePdf={(name) => { void api.savePdf(name).then((file) => { if (file) notify(tr(`PDF enregistré : ${file}`, `PDF saved: ${file}`)) }) }} />}
-          {activeWorkspace && activeWorkspace.id !== 'audit' && <div className="sg-module"><FinanceView section={activeWorkspace.id} store={store} apply={setStore} tr={tr} money={money} day={day} notify={notify} audit={onAction} go={go} savePdf={(name) => api.savePdf(name)} /></div>}
+          {activeWorkspace && activeWorkspace.id !== 'audit' && <div className="sg-module"><FinanceView section={activeWorkspace.id} admin={state.auth.user?.role === 'admin'} store={store} apply={setStore} tr={tr} money={money} day={day} notify={notify} audit={onAction} go={go} savePdf={(name) => api.savePdf(name)} /></div>}
           <footer className="page-footer sg-noprint"><span><ShieldCheck size={13} />{tr('Données enregistrées dans votre compte Google', 'Data saved in your Google account')}</span><span>AICOM · v{state.version}</span></footer>
         </div>
       </main>
