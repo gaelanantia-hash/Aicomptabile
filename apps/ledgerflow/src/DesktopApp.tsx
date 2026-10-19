@@ -1,6 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type Dispatch, type InputHTMLAttributes, type ReactNode, type SetStateAction } from 'react'
 import {
-  ArrowDownLeft, BookOpen, Building2, ChartColumn, Check, ChevronDown, CircleHelp, ClipboardCheck, Cloud, CloudOff, FileInput, FileSearch, FileSpreadsheet, HardDrive,
+  ArrowDownLeft, BookOpen, Eye, EyeOff, Building2, ChartColumn, Check, ChevronDown, CircleHelp, ClipboardCheck, Cloud, CloudOff, FileInput, FileSearch, FileSpreadsheet, HardDrive,
   KeyRound, LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, MonitorSmartphone, RefreshCw, Settings, ShieldCheck, ShoppingCart, Store as StoreIcon,
   Trash2, TriangleAlert, UserRound, Wallet, X,
 } from 'lucide-react'
@@ -208,6 +208,20 @@ function authMessage(result: Extract<AuthResult, { ok: false }>, tr: Translate) 
   }
 }
 
+/** A password field whose content can be shown, to check what was typed. */
+function PasswordInput({ tr, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { tr: Translate }) {
+  const [visible, setVisible] = useState(false)
+  return (
+    <span className="password-field">
+      <input {...props} type={visible ? 'text' : 'password'} spellCheck={false} />
+      <button className="password-toggle" type="button" aria-pressed={visible} title={visible ? tr('Masquer le mot de passe', 'Hide the password') : tr('Afficher le mot de passe', 'Show the password')}
+        aria-label={visible ? tr('Masquer le mot de passe', 'Hide the password') : tr('Afficher le mot de passe', 'Show the password')} onClick={() => setVisible(!visible)}>
+        {visible ? <EyeOff size={15} /> : <Eye size={15} />}
+      </button>
+    </span>
+  )
+}
+
 function RecoveryCode({ code, tr }: { code: string; tr: Translate }) {
   return (
     <div className="dk-recovery" role="status">
@@ -262,7 +276,7 @@ function SignIn({ api, state, locale, setLocale, tr, onSignedIn }: { api: Deskto
             <form className="portal-form" onSubmit={(event) => { event.preventDefault(); void submit() }}>
               <label>{tr('Identifiant', 'Username')}<input value={username} required autoFocus autoComplete="username" spellCheck={false} onChange={(event) => setUsername(event.target.value)} /></label>
               {mode === 'recover' && <label>{tr('Code de secours', 'Recovery code')}<input className="dk-code" value={code} required placeholder="XXXX-XXXX-XXXX" spellCheck={false} onChange={(event) => setCode(event.target.value)} /></label>}
-              <label>{mode === 'login' ? tr('Mot de passe', 'Password') : tr('Nouveau mot de passe', 'New password')}<input type="password" value={password} required minLength={mode === 'recover' ? 8 : 1} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onChange={(event) => setPassword(event.target.value)} /></label>
+              <label>{mode === 'login' ? tr('Mot de passe', 'Password') : tr('Nouveau mot de passe', 'New password')}<PasswordInput tr={tr} value={password} required minLength={mode === 'recover' ? 8 : 1} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} onChange={(event) => setPassword(event.target.value)} /></label>
               {message && <p className="portal-error" role="alert">{message}</p>}
               <button className="portal-submit" type="submit" disabled={busy}>{busy && <LoaderCircle className="spin-icon" size={16} />}{mode === 'login' ? tr('Se connecter', 'Sign in') : tr('Changer le mot de passe', 'Change the password')}</button>
             </form>
@@ -444,8 +458,8 @@ function Setup({ api, state, store, locale, setLocale, tr, refresh, loadStore, o
             <form className="portal-form" onSubmit={(event) => { event.preventDefault(); void createAccount() }}>
               <label>{tr('Nom et prénom', 'Full name')}<input value={account.name} required maxLength={80} autoFocus onChange={(event) => setAccount({ ...account, name: event.target.value })} /></label>
               <label>{tr('Identifiant', 'Username')}<input value={account.username} required autoComplete="username" spellCheck={false} onChange={(event) => setAccount({ ...account, username: event.target.value })} /><small>{tr('3 à 40 caractères : lettres, chiffres, point, tiret', '3 to 40 characters: letters, digits, dot, dash')}</small></label>
-              <label>{tr('Mot de passe', 'Password')}<input type="password" value={account.password} required minLength={8} autoComplete="new-password" onChange={(event) => setAccount({ ...account, password: event.target.value })} /><small>{tr('8 caractères minimum', 'At least 8 characters')}</small></label>
-              <label>{tr('Confirmez le mot de passe', 'Confirm the password')}<input type="password" value={account.confirm} required autoComplete="new-password" onChange={(event) => setAccount({ ...account, confirm: event.target.value })} /></label>
+              <label>{tr('Mot de passe', 'Password')}<PasswordInput tr={tr} value={account.password} required minLength={8} autoComplete="new-password" onChange={(event) => setAccount({ ...account, password: event.target.value })} /><small>{tr('8 caractères minimum', 'At least 8 characters')}</small></label>
+              <label>{tr('Confirmez le mot de passe', 'Confirm the password')}<PasswordInput tr={tr} value={account.confirm} required autoComplete="new-password" onChange={(event) => setAccount({ ...account, confirm: event.target.value })} /></label>
               {message && <p className="portal-error" role="alert">{message}</p>}
               <button className="portal-submit" type="submit" disabled={busy}>{busy && <LoaderCircle className="spin-icon" size={16} />}{tr('Créer l’identifiant', 'Create the sign-in')}</button>
             </form>
@@ -716,13 +730,13 @@ function UsersSettings({ api, state, tr, notify }: { api: DesktopApi; state: Des
       <p className="dk-note">{tr('Un compte ne se supprime pas : il se désactive, pour que l’historique des accès reste lisible.', 'An account is never deleted: it is disabled, so the access history stays readable.')}</p>
       {issued && <RecoveryCode code={issued} tr={tr} />}
       <div className="sg-form dk-inline-form">
-        <label>{tr('Mon nouveau mot de passe', 'My new password')}<input type="password" value={password} minLength={8} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} /></label>
+        <label>{tr('Mon nouveau mot de passe', 'My new password')}<PasswordInput tr={tr} value={password} minLength={8} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} /></label>
         <button className="approve-button" type="button" disabled={password.length < 8} onClick={() => { void act(() => api.changePassword(me.username, password), tr('Mot de passe modifié.', 'Password changed.')).then((ok) => { if (ok) setPassword('') }) }}>{tr('Changer mon mot de passe', 'Change my password')}</button>
       </div>
       {me.role === 'admin' && <div className="sg-form dk-inline-form">
         <label>{tr('Nom et prénom', 'Full name')}<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
         <label>{tr('Identifiant', 'Username')}<input value={form.username} spellCheck={false} onChange={(event) => setForm({ ...form, username: event.target.value })} /></label>
-        <label>{tr('Mot de passe provisoire', 'Temporary password')}<input type="password" value={form.password} autoComplete="new-password" onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
+        <label>{tr('Mot de passe provisoire', 'Temporary password')}<PasswordInput tr={tr} value={form.password} autoComplete="new-password" onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
         <label>{tr('Rôle', 'Role')}<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as 'admin' | 'user' })}><option value="user">{tr('Utilisateur', 'User')}</option><option value="admin">{tr('Administrateur', 'Administrator')}</option></select></label>
         <button className="approve-button" type="button" onClick={() => { void act(() => api.createUser(form), tr('Compte créé. Remettez à la personne son code de secours.', 'Account created. Give the person their recovery code.')).then((ok) => { if (ok) setForm(blank) }) }}>{tr('Ajouter un utilisateur', 'Add a user')}</button>
       </div>}
