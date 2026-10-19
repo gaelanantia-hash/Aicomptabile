@@ -564,7 +564,11 @@ function Workspace({ api, state, store, setStore, locale, setLocale, tr, refresh
             }}>{state.sync.detail === 'insufficient_scopes' ? reconnecting ? tr('Ouverture de Google…', 'Opening Google…') : tr('Reconnecter Google', 'Reconnect Google') : tr('Réessayer', 'Retry')}</button>} />}
           {state.update.status === 'ready' && <Banner tone="info" text={tr(`La version ${state.update.version} est prête à être installée.`, `Version ${state.update.version} is ready to install.`) + (state.update.notes ? ` ${state.update.notes}` : '')}
             action={<button className="approve-button" type="button" onClick={() => { void api.installUpdate() }}>{tr('Redémarrer et installer', 'Restart and install')}</button>} />}
-          {state.update.status === 'available' && state.update.url && <Banner tone="info" text={tr(`La version ${state.update.version} est disponible.`, `Version ${state.update.version} is available.`) + (state.update.notes ? ` ${state.update.notes}` : '')}
+          {state.update.status === 'available' && state.update.metered && <Banner tone="info" text={tr(
+            `La version ${state.update.version} est disponible. Votre connexion est facturée au volume : le téléchargement${state.update.size ? ` (${Math.ceil(state.update.size / 1_048_576)} Mo au plus)` : ''} attend votre accord.`,
+            `Version ${state.update.version} is available. Your connection is metered: the download${state.update.size ? ` (up to ${Math.ceil(state.update.size / 1_048_576)} MB)` : ''} waits for your go-ahead.`)}
+            action={<button className="approve-button" type="button" onClick={() => { void api.downloadUpdate() }}>{tr('Télécharger quand même', 'Download anyway')}</button>} />}
+          {state.update.status === 'available' && !state.update.metered && state.update.url && <Banner tone="info" text={tr(`La version ${state.update.version} est disponible.`, `Version ${state.update.version} is available.`) + (state.update.notes ? ` ${state.update.notes}` : '')}
             action={<button className="approve-button" type="button" onClick={() => { void api.openExternal(state.update.url!) }}>{tr('Télécharger', 'Download')}</button>} />}
 
           <section className="welcome-row sg-noprint"><div><h1>{title}</h1><p>{activeWorkspace ? tr(activeWorkspace.frText, activeWorkspace.enText) : tr('Chaque enregistrement est sauvegardé sur ce PC, puis envoyé sur votre Google Drive.', 'Every record is saved on this PC, then sent to your Google Drive.')}</p></div></section>

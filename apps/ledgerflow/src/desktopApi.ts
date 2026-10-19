@@ -5,7 +5,8 @@ export type SyncStatus = 'disconnected' | 'synced' | 'pending' | 'syncing' | 'of
 export type SyncState = { status: SyncStatus; lastSyncAt?: string; detail?: string; lockedBy?: string }
 export type LicenseReason = 'missing' | 'invalid' | 'expired' | 'revoked' | 'device_limit' | 'grace_expired' | 'unreachable'
 export type LicenseState = { valid: boolean; customer?: string; expires?: string | null; validUntil?: string; reason?: LicenseReason; dev?: boolean; trial?: boolean }
-export type UpdateState = { status: 'idle' | 'available' | 'downloading' | 'ready' | 'error'; version?: string; notes?: string; url?: string }
+/** `metered`: the download waits for the customer because the connection is paid by volume; `size` is the most it will transfer, in bytes. */
+export type UpdateState = { status: 'idle' | 'available' | 'downloading' | 'ready' | 'error'; version?: string; notes?: string; url?: string; metered?: boolean; size?: number }
 
 export type AccessEvent = 'login' | 'login_failed' | 'logout' | 'user_created' | 'password_changed' | 'password_recovered' | 'user_disabled' | 'user_enabled'
 /** One line of the access history: who, on which PC, what, and when (ISO date and time). */
@@ -60,6 +61,7 @@ export type DesktopApi = {
   reportError(message: string, stack: string): Promise<void>
   checkUpdate(): Promise<UpdateState>
   installUpdate(): Promise<void>
+  downloadUpdate(): Promise<void>
   openExternal(url: string): Promise<void>
   quit(): Promise<void>
   /** Development builds only: sets the OAuth desktop client when no desktop.config.json provides it. */

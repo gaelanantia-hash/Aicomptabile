@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 const calls = [
   'getState', 'activateLicense', 'deactivateLicense', 'connectGoogle', 'cancelConnect', 'disconnectGoogle', 'useLocalOnly',
   'loadData', 'saveData', 'syncNow', 'resolveConflict', 'takeOverLock', 'listAudit', 'listRevisions', 'restoreRevision',
-  'exportBackup', 'importBackup', 'storageQuota', 'savePdf', 'setErrorReports', 'reportError', 'checkUpdate', 'installUpdate',
+  'exportBackup', 'importBackup', 'storageQuota', 'savePdf', 'setErrorReports', 'reportError', 'checkUpdate', 'installUpdate', 'downloadUpdate',
   'openExternal', 'quit', 'setGoogleClient', 'backupNow',
   'login', 'logout', 'createUser', 'listUsers', 'setUserActive', 'changePassword', 'recoverPassword', 'listAccess',
 ]

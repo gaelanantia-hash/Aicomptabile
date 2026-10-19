@@ -74,6 +74,8 @@ Per pubblicare una versione: carica nel bucket il contenuto di `release/` (`.exe
 
 Lo script crea il bucket se manca (lettura pubblica), scrive `updateFeedUrl` in `desktop.config.json`, esegue i test, costruisce l'installer `AICOM-Setup-<versione>.exe` e lo carica; `latest.yml` per ultimo e senza cache. Link fisso per i nuovi clienti: `https://storage.googleapis.com/<bucket>/releases/AICOM-Setup-latest.exe`.
 
+Su una connessione a consumo (hotspot del telefono, rete Wi-Fi segnata *a consumo* in Windows, roaming o vicina al limite dati) l'app non scarica l'aggiornamento: mostra la versione e la dimensione massima e aspetta il pulsante *Télécharger quand même*. Il controllo usa `NetworkCostType` di Windows (`electron/network.ts`); se non riesce a leggerlo, scarica come prima.
+
 **Le installazioni 0.1.0 non si aggiornano da sole**: il loro installer aveva `updateFeedUrl` vuoto. La 0.2.0 va installata a mano una volta (sopra la 0.1.0: i dati restano); dalla 0.2.0 in poi gli aggiornamenti sono automatici.
 
 Senza firma, gli aggiornamenti funzionano lo stesso: l'app non verifica l'editore (nessun `publisherName`), controlla l'impronta SHA-512 dell'installer scritta in `latest.yml`. Chi può scrivere nel bucket può quindi distribuire codice ai clienti: limitare a te i permessi di scrittura.

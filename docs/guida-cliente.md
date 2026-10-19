@@ -15,6 +15,8 @@
 2. Fai doppio clic. L'installazione dura meno di un minuto e non richiede diritti di amministratore.
 3. AICOM si apre da solo; trovi l'icona sul desktop e nel menu Start.
 
+**Aggiornamenti.** AICOM scarica da solo le nuove versioni e le installa alla chiusura. Se il PC è collegato a internet tramite il telefono o una connessione a consumo, AICOM non scarica niente senza chiedere: compare un avviso con il pulsante *Télécharger quand même*. Puoi anche indicare a Windows che una rete Wi-Fi è a consumo: *Impostazioni → Rete e Internet → Wi-Fi → (la tua rete) → Connessione a consumo*.
+
 ## 2. Primo avvio
 
 **Passo 1 — Licenza.** Incolla il codice e premi *Activer*.

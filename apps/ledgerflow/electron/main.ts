@@ -12,6 +12,7 @@ import { loadConfig } from './config.ts'
 import { openDatabase, type Database } from './database.ts'
 import { createDrive } from './drive.ts'
 import { createLicenseClient } from './license.ts'
+import { isMeteredConnection } from './network.ts'
 import { AuthRevokedError, buildAuthUrl, createPkce, exchangeCode, listenForRedirect, readAccount, refreshTokens, revokeToken, type Tokens } from './oauth.ts'
 import { createSync, type Sync } from './sync.ts'
 import { createVault } from './tokens.ts'
@@ -206,13 +207,22 @@ function setupUpdater() {
   if (!app.isPackaged || !config.updateFeedUrl) return
   const { autoUpdater } = electronUpdater
   autoUpdater.setFeedURL({ provider: 'generic', url: config.updateFeedUrl })
-  autoUpdater.autoDownload = true
+  // Downloads are started here, not by the updater: on a metered connection (phone hotspot, data plan) the customer decides.
+  autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
   const publish = (next: UpdateState) => {
     update = { ...update, ...next }
     send('update', update)
   }
-  autoUpdater.on('update-available', (info) => publish({ status: 'downloading', version: info.version }))
+  autoUpdater.on('update-available', (info) => {
+    if (update.status === 'downloading' || update.status === 'ready') return
+    const size = info.files.reduce((total, file) => total + (file.size ?? 0), 0) || undefined
+    void isMeteredConnection().then((metered) => {
+      if (metered) return publish({ status: 'available', version: info.version, metered: true, size })
+      publish({ status: 'downloading', version: info.version, metered: false })
+      autoUpdater.downloadUpdate().catch(() => undefined)
+    })
+  })
   autoUpdater.on('update-downloaded', (info) => publish({ status: 'ready', version: info.version }))
   autoUpdater.on('error', () => publish({ status: update.status === 'downloading' ? 'error' : update.status }))
 }
@@ -323,6 +333,13 @@ const handlers: Record<string, (...args: never[]) => unknown> = {
   checkUpdate,
   installUpdate: () => {
     if (update.status === 'ready') electronUpdater.autoUpdater.quitAndInstall()
+  },
+  /** The customer accepts the download that a metered connection had put on hold. */
+  downloadUpdate: () => {
+    if (update.status !== 'available' || !update.metered) return
+    update = { ...update, status: 'downloading' }
+    send('update', update)
+    electronUpdater.autoUpdater.downloadUpdate().catch(() => undefined)
   },
   openExternal: async (url: string) => {
     if (/^https:\/\//.test(String(url))) await shell.openExternal(url)
