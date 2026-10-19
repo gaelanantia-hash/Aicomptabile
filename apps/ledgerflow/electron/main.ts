@@ -29,8 +29,8 @@ const webRoot = join(appRoot, 'dist')
 // Environment overrides are for development and tests only: in an installed build they would let anyone change the licence settings.
 const config = loadConfig(join(appRoot, 'desktop.config.json'), devMode ? process.env : {})
 const contentSecurityPolicy = [
-  "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com data:", "img-src 'self' data: blob:", "connect-src 'self'", "worker-src 'self' blob:",
+  "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:", "img-src 'self' data: blob:", "connect-src 'self'", "worker-src 'self' blob:",
   "object-src 'none'", "base-uri 'self'", "frame-ancestors 'none'", "form-action 'none'",
 ].join('; ')
 
