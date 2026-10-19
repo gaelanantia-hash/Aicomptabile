@@ -4,7 +4,7 @@
   "description": "AICOM — gestion commerciale, caisse et comptabilité",
   "author": "AICOM",
   "private": true,
-  "version": "0.2.5",
+  "version": "0.2.6",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -17,7 +17,7 @@
     "build:desktop": "tsc -b && vite build && vite build --config vite.electron.config.ts",
     "desktop": "npm run build:desktop && node scripts/desktop.mjs",
     "desktop:dev": "vite build --config vite.electron.config.ts && node scripts/desktop.mjs --dev",
-    "dist": "npm run build:desktop && electron-builder --win --publish never"
+    "dist": "node node_modules/electron/install.js && npm run build:desktop && electron-builder --win --publish never"
   },
   "dependencies": {
     "@firebase/app": "^0.16.2",
