@@ -41,8 +41,6 @@ import {
 import { readInvoiceDocument, type ImportedInvoiceDraft } from './invoiceImport'
 import { CloudAccess, type CloudSession } from './CloudAccess'
 import { cloudConfigured, cloudRequest, downloadCloudDocument, signOutAccount, type CloudInvoice } from './cloudClient'
-import { DesktopApp } from './DesktopApp'
-import { desktop } from './desktopApi'
 import logoMark from './assets/aicom-mark.webp'
 import { SageModules } from './SageModules'
 import { createStore, type ModuleId } from './sageData'
@@ -210,8 +208,6 @@ const auditRowsSeed: [string, string, string, string][] = [
 ]
 
 function App() {
-  // Installed desktop app: licence, Google account and data in the customer's own Drive.
-  if (desktop) return <DesktopApp api={desktop} />
   if (!cloudConfigured) return <Dashboard />
   return <CloudAccess>{(session) => <Dashboard cloudSession={session} />}</CloudAccess>
 }

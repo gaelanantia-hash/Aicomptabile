@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import {
   ArrowDownLeft, BookOpen, Building2, ChartColumn, Check, ChevronDown, CircleHelp, ClipboardCheck, Cloud, CloudOff, FileInput, FileSearch, FileSpreadsheet, HardDrive,
   KeyRound, LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, MonitorSmartphone, RefreshCw, Settings, ShieldCheck, ShoppingCart, Store as StoreIcon,
   Trash2, TriangleAlert, UserRound, Wallet, X,
 } from 'lucide-react'
 import type { AccessEvent, AccessRow, AppUser, AuditRow, AuthResult, DesktopApi, DesktopState, LicenseReason, Revision, SyncState } from './desktopApi'
-import { FinanceView, type FinanceSection } from './FinanceSections'
-import { SageModules } from './SageModules'
+import type { FinanceSection } from './FinanceSections'
 import { exportWorkbook } from './sageExport'
 import { countries, createEmptyStore, createStore, setupFor, vatRatesOf, type ModuleId, type Store } from './sageData'
 import { fromSnapshot, toSnapshot } from './sageSnapshot'
@@ -16,6 +15,13 @@ import { downloadXlsx } from './xlsx'
 import './App.css'
 import './CloudAccess.css'
 import './DesktopApp.css'
+
+// The working screens load after the splash and sign-in, which then appear sooner; preloadScreens fetches them in the background.
+const loadSageModules = () => import('./SageModules')
+const loadFinanceSections = () => import('./FinanceSections')
+const SageModules = lazy(() => loadSageModules().then((module) => ({ default: module.SageModules })))
+const FinanceView = lazy(() => loadFinanceSections().then((module) => ({ default: module.FinanceView })))
+const preloadScreens = () => Promise.all([loadSageModules(), loadFinanceSections()]).catch(() => undefined)
 
 type Locale = 'en' | 'fr'
 type Translate = (fr: string, en: string) => string
@@ -103,6 +109,8 @@ export function DesktopApp({ api }: { api: DesktopApi }) {
     api.getState().then(async (next) => {
       await loadStore()
       setState(next)
+      // While the customer reads the sign-in screen, so a module opens at once afterwards.
+      setTimeout(() => { void preloadScreens() }, 300)
     }).catch((error: unknown) => setFailure(String(error)))
     const stop = [
       api.onSync((sync) => setState((current) => current && { ...current, sync })),
@@ -574,9 +582,11 @@ function Workspace({ api, state, store, setStore, locale, setLocale, tr, refresh
           <section className="welcome-row sg-noprint"><div><h1>{title}</h1><p>{activeWorkspace ? tr(activeWorkspace.frText, activeWorkspace.enText) : tr('Chaque enregistrement est sauvegardé sur ce PC, puis envoyé sur votre Google Drive.', 'Every record is saved on this PC, then sent to your Google Drive.')}</p></div></section>
 
           {section === 'audit' && <AuditSection api={api} tr={tr} locale={locale} revision={store} />}
+          <Suspense fallback={<div className="screen-loading"><LoaderCircle className="spin-icon" size={20} /></div>}>
           {activeModule && <SageModules module={activeModule.id} initialActivity={focus} admin={state.auth.user?.role === 'admin'} locale={locale} store={store} setStore={setStore} money={money} notify={notify} audit={onAction} onModule={(id) => go(id)}
             savePdf={(name) => { void api.savePdf(name).then((file) => { if (file) notify(tr(`PDF enregistré : ${file}`, `PDF saved: ${file}`)) }) }} />}
           {activeWorkspace && activeWorkspace.id !== 'audit' && <div className="sg-module"><FinanceView section={activeWorkspace.id} admin={state.auth.user?.role === 'admin'} store={store} apply={setStore} tr={tr} money={money} day={day} notify={notify} audit={onAction} go={go} savePdf={(name) => api.savePdf(name)} /></div>}
+          </Suspense>
           <footer className="page-footer sg-noprint"><span><ShieldCheck size={13} />{tr('Données enregistrées dans votre compte Google', 'Data saved in your Google account')}</span><span>AICOM · v{state.version}</span></footer>
         </div>
       </main>
