@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { gunzipSync } from 'node:zlib'
 import { after, before, beforeEach, test } from 'node:test'
 import type { SyncState } from '../src/desktopApi.ts'
 import { openDatabase } from './database.ts'
@@ -43,6 +44,9 @@ function pc(name: string, endpoints = google.endpoints) {
     clients: () => db.load().clients,
   }
 }
+const dataFile = () => [...google.files.values()].find((file) => file.name === 'aicom-data.json')!
+const driveData = () => JSON.parse(gunzipSync(dataFile().revisions.at(-1)!.content).toString('utf8'))
+
 /** Lets the other PC's "open elsewhere" marker lapse, as when that PC has been closed for a while. */
 const later = () => { clock += LOCK_TTL_MS + 1 }
 
@@ -171,7 +175,7 @@ test('offline: edits stay in the local copy and are sent when the connection ret
 
   one.edit({ C1: { name: 'A' }, C2: { name: 'later' } })
   assert.equal((await one.sync.run()).status, 'synced')
-  assert.equal(JSON.parse([...google.files.values()].find((file) => file.name === 'aicom-data.json')!.revisions.at(-1)!.content).records.clients.C2.name, 'later')
+  assert.equal(driveData().records.clients.C2.name, 'later')
 })
 
 test('revoked Google access asks to reconnect and loses nothing', async () => {
@@ -226,7 +230,7 @@ test('edits made during an upload are not marked as sent', async () => {
   assert.equal(one.db.getSetting('dirty'), '1')
   assert.equal((await one.sync.run()).status, 'synced')
   assert.equal(one.db.getSetting('dirty'), '0')
-  assert.equal(JSON.parse([...google.files.values()].find((file) => file.name === 'aicom-data.json')!.revisions.at(-1)!.content).records.clients.C1.name, 'B')
+  assert.equal(driveData().records.clients.C1.name, 'B')
 })
 
 test('a data file deleted from Drive is recreated from the local copy', async () => {
@@ -236,4 +240,22 @@ test('a data file deleted from Drive is recreated from the local copy', async ()
   for (const file of google.files.values()) file.trashed = true
   assert.equal((await one.sync.run()).status, 'synced')
   assert.equal([...google.files.values()].filter((file) => !file.trashed && file.name === 'aicom-data.json').length, 1)
+})
+
+test('the Drive copy is sent compressed, and plain JSON written by older versions is still read', async () => {
+  const one = pc('one')
+  const many = Object.fromEntries(Array.from({ length: 200 }, (_, index) => [`C${index}`, { name: `Client ${index}`, city: 'Douala' }]))
+  one.edit(many)
+  await one.sync.run()
+  const sent = dataFile().revisions.at(-1)!.content
+  assert.deepEqual([...sent.subarray(0, 2)], [0x1f, 0x8b])
+  assert.ok(sent.length * 5 < JSON.stringify(driveData()).length)
+
+  // A PC still on an earlier version uploads plain JSON: the new version must take it over unchanged.
+  const legacy = { ...driveData(), records: { ...driveData().records, clients: { C1: { name: 'from an earlier version' } } } }
+  dataFile().revisions.push({ id: 'legacy', content: Buffer.from(JSON.stringify(legacy)), modifiedTime: new Date().toISOString() })
+  later()
+  const two = pc('two')
+  assert.equal((await two.sync.run()).status, 'synced')
+  assert.deepEqual(two.clients(), { C1: { name: 'from an earlier version' } })
 })

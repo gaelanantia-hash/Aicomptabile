@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import type { GoogleEndpoints } from '../oauth.ts'
 
-type FakeFile = { id: string; name: string; mimeType: string; appProperties: Record<string, string>; trashed: boolean; revisions: { id: string; content: string; modifiedTime: string }[] }
+type FakeFile = { id: string; name: string; mimeType: string; appProperties: Record<string, string>; trashed: boolean; revisions: { id: string; content: Buffer; modifiedTime: string }[] }
 
 /** In-memory stand-in for Google's sign-in and Drive endpoints, for automated tests. Implements only what the app calls. */
 export async function startFakeGoogle() {
@@ -13,9 +13,9 @@ export async function startFakeGoogle() {
   const codes = new Map<string, { challenge: string; redirectUri: string }>()
   const options = { quotaExceeded: false, insufficientScopes: false, account: { sub: 'sub-1', email: 'cliente@example.com' }, onUpload: undefined as (() => void) | undefined }
 
-  const body = (request: IncomingMessage) => new Promise<string>((resolve) => {
+  const body = (request: IncomingMessage) => new Promise<Buffer>((resolve) => {
     const chunks: Buffer[] = []
-    request.on('data', (chunk: Buffer) => chunks.push(chunk)).on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    request.on('data', (chunk: Buffer) => chunks.push(chunk)).on('end', () => resolve(Buffer.concat(chunks)))
   })
   const json = (response: ServerResponse, status: number, payload: unknown) => {
     response.writeHead(status, { 'Content-Type': 'application/json' })
@@ -25,18 +25,20 @@ export async function startFakeGoogle() {
     const head = file.revisions.at(-1)
     return { id: file.id, name: file.name, mimeType: file.mimeType, headRevisionId: head?.id, modifiedTime: head?.modifiedTime, appProperties: file.appProperties, trashed: file.trashed }
   }
-  const parseMultipart = (request: IncomingMessage, raw: string) => {
+  // latin1 maps every byte to one character, so the binary (gzip) media part survives the split.
+  const parseMultipart = (request: IncomingMessage, raw: Buffer) => {
     const boundary = /boundary=(.+)$/.exec(request.headers['content-type'] ?? '')?.[1]
-    const parts = raw.split(`--${boundary}`).slice(1, -1).map((part) => part.slice(part.indexOf('\r\n\r\n') + 4).replace(/\r\n$/, ''))
-    return { metadata: JSON.parse(parts[0]) as { name?: string; mimeType?: string; appProperties?: Record<string, string> }, content: parts[1] }
+    const parts = raw.toString('latin1').split(`--${boundary}`).slice(1, -1).map((part) => part.slice(part.indexOf('\r\n\r\n') + 4).replace(/\r\n$/, ''))
+    return { metadata: JSON.parse(parts[0]) as { name?: string; mimeType?: string; appProperties?: Record<string, string> }, content: Buffer.from(parts[1], 'latin1') }
   }
-  const addRevision = (file: FakeFile, content: string) => file.revisions.push({ id: randomUUID(), content, modifiedTime: new Date().toISOString() })
+  const addRevision = (file: FakeFile, content: Buffer) => file.revisions.push({ id: randomUUID(), content, modifiedTime: new Date().toISOString() })
 
   const server = createServer((request, response) => {
     void (async () => {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
       const path = url.pathname
-      const raw = await body(request)
+      const bytes = await body(request)
+      const raw = bytes.toString('utf8')
 
       if (path === '/auth') {
         const code = randomUUID()
@@ -89,7 +91,7 @@ export async function startFakeGoogle() {
       if (path.startsWith('/upload/')) options.onUpload?.()
       if (path === '/upload/drive/v3/files' && request.method === 'POST') {
         if (options.quotaExceeded) return json(response, 403, { error: { message: 'The user has exceeded their Drive storage quota', errors: [{ reason: 'storageQuotaExceeded' }] } })
-        const { metadata, content } = parseMultipart(request, raw)
+        const { metadata, content } = parseMultipart(request, bytes)
         const file: FakeFile = { id: randomUUID(), name: metadata.name ?? '', mimeType: metadata.mimeType ?? '', appProperties: metadata.appProperties ?? {}, trashed: false, revisions: [] }
         addRevision(file, content)
         files.set(file.id, file)
@@ -103,8 +105,9 @@ export async function startFakeGoogle() {
 
       if (uploadId) {
         if (options.quotaExceeded) return json(response, 403, { error: { message: 'The user has exceeded their Drive storage quota', errors: [{ reason: 'storageQuotaExceeded' }] } })
-        const { metadata, content } = parseMultipart(request, raw)
+        const { metadata, content } = parseMultipart(request, bytes)
         Object.assign(file.appProperties, metadata.appProperties)
+        if (metadata.mimeType) file.mimeType = metadata.mimeType
         addRevision(file, content)
         return json(response, 200, describe(file))
       }

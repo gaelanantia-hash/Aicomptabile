@@ -48,7 +48,7 @@ La chiave **privata** delle licenze e il token di amministrazione stanno solo in
 Rischi residui noti:
 
 - **Dati locali non cifrati.** Il database SQLite sul PC è leggibile da chi ha accesso alla sessione Windows del cliente. Mitigazione consigliata al cliente: sessione Windows con password e BitLocker.
-- **File su Drive in chiaro.** `aicom-data.json` è leggibile da chiunque acceda all'account Google del cliente. Mitigazione: verifica in due passaggi sull'account Google.
+- **File su Drive in chiaro.** `aicom-data.json` è leggibile da chiunque acceda all'account Google del cliente (la compressione gzip non è cifratura). Mitigazione: verifica in due passaggi sull'account Google.
 - **Licenza aggirabile da un utente esperto** che modifichi l'applicazione: la licenza è un controllo commerciale, non una protezione crittografica del software.
 - **Installer non firmato** finché non acquisti un certificato (vedi `06-rilascio.md`).
 - **Fuso orario del PC**: scadenze e tolleranza offline usano l'orologio del PC, che l'utente può cambiare.

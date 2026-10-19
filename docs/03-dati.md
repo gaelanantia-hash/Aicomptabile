@@ -53,7 +53,7 @@ Nel database locale ogni record è una riga della tabella `records (collection, 
 ## Sincronizzazione con Drive (T26)
 
 1. Ogni modifica è scritta subito nel database locale.
-2. Dopo 4 secondi senza altre modifiche l'app carica `aicom-data.json` su Drive.
+2. Dopo 4 secondi senza altre modifiche l'app carica `aicom-data.json` su Drive, compresso con gzip per ridurre il traffico sulle connessioni lente. Il nome resta `.json` perché le versioni precedenti trovino lo stesso file; la lettura accetta sia il formato compresso sia il JSON semplice scritto dalle versioni precedenti (`decodeData` in `electron/drive.ts`).
 3. Ogni 60 secondi l'app controlla se Drive contiene una versione più recente e, se sì, la scarica.
 4. Alla chiusura l'app invia le modifiche ancora in attesa.
 

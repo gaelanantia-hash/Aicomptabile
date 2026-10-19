@@ -59,6 +59,11 @@
       "output": "release"
     },
     "electronDist": "node_modules/electron/dist",
+    "electronLanguages": [
+      "fr",
+      "en-US"
+    ],
+    "compression": "maximum",
     "files": [
       "dist/**/*",
       "!dist/server/**/*",

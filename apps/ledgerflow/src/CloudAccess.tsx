@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Building2, Cloud, LoaderCircle, LockKeyhole, Mail, ShieldCheck } from 'lucide-react'
 import { sendEmailVerification, type User } from '@firebase/auth'
 import { cloudRequest, createAccount, sendPasswordReset, signIn, signOutAccount, subscribeToAuth, type CloudWorkspace } from './cloudClient'
-import logoMark from './assets/aicom-mark.png'
+import logoMark from './assets/aicom-mark.webp'
 import './CloudAccess.css'
 
 type PortalLocale = 'fr' | 'en'

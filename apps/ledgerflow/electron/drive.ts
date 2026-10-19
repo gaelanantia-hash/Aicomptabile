@@ -1,3 +1,5 @@
+import { promisify } from 'node:util'
+import { gunzip, gzip } from 'node:zlib'
 import type { Revision } from '../src/desktopApi.ts'
 import type { GoogleEndpoints } from './oauth.ts'
 
@@ -19,6 +21,18 @@ export class DriveError extends Error {
 }
 
 const fileFields = 'id,headRevisionId,modifiedTime,appProperties'
+const DATA_TYPE = 'application/gzip'
+
+/** The data file travels gzip-compressed: accounting JSON shrinks several times over, which matters on slow connections. */
+export async function encodeData(content: string) {
+  return promisify(gzip)(content, { level: 9 })
+}
+
+/** Reads both the compressed format and the plain JSON written by earlier versions (older Drive revisions included). */
+export async function decodeData(bytes: Buffer) {
+  const compressed = bytes[0] === 0x1f && bytes[1] === 0x8b
+  return (compressed ? await promisify(gunzip)(bytes) : bytes).toString('utf8')
+}
 
 /** Google Drive client limited to what the `drive.file` scope allows: the folder and file this app created. */
 export function createDrive(endpoints: GoogleEndpoints, getToken: (refresh?: boolean) => Promise<string>) {
@@ -38,13 +52,10 @@ export function createDrive(endpoints: GoogleEndpoints, getToken: (refresh?: boo
     return await (await request(url, init)).json() as T
   }
 
-  function multipart(metadata: object, content: string) {
+  async function multipart(metadata: object, content: string) {
     const boundary = `aicom${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
-    const body = [
-      `--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '', JSON.stringify(metadata),
-      `--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '', content,
-      `--${boundary}--`, '',
-    ].join('\r\n')
+    const head = [`--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '', JSON.stringify(metadata), `--${boundary}`, `Content-Type: ${DATA_TYPE}`, '', ''].join('\r\n')
+    const body = Buffer.concat([Buffer.from(head), await encodeData(content), Buffer.from(`\r\n--${boundary}--\r\n`)])
     return { body, headers: { 'Content-Type': `multipart/related; boundary=${boundary}` } }
   }
 
@@ -70,12 +81,12 @@ export function createDrive(endpoints: GoogleEndpoints, getToken: (refresh?: boo
       const folderType = 'application/vnd.google-apps.folder'
       const folder = await find(DATA_FOLDER, folderType)
         ?? await json<DriveFile>(`${endpoints.api}/files?fields=id`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: DATA_FOLDER, mimeType: folderType }) })
-      const upload = multipart({ name: DATA_FILE, parents: [folder.id], mimeType: 'application/json', appProperties }, content)
+      const upload = await multipart({ name: DATA_FILE, parents: [folder.id], mimeType: DATA_TYPE, appProperties }, content)
       return json<DriveFile>(`${endpoints.upload}/files?uploadType=multipart&fields=${fileFields}`, { method: 'POST', ...upload })
     },
 
-    updateDataFile(id: string, content: string, appProperties: Record<string, string>) {
-      const upload = multipart({ appProperties }, content)
+    async updateDataFile(id: string, content: string, appProperties: Record<string, string>) {
+      const upload = await multipart({ mimeType: DATA_TYPE, appProperties }, content)
       return json<DriveFile>(`${endpoints.upload}/files/${id}?uploadType=multipart&fields=${fileFields}`, { method: 'PATCH', ...upload })
     },
 
@@ -86,7 +97,7 @@ export function createDrive(endpoints: GoogleEndpoints, getToken: (refresh?: boo
 
     async download(id: string, revision?: string) {
       const path = revision ? `${id}/revisions/${revision}` : id
-      return (await request(`${endpoints.api}/files/${path}?alt=media`)).text()
+      return decodeData(Buffer.from(await (await request(`${endpoints.api}/files/${path}?alt=media`)).arrayBuffer()))
     },
 
     async listRevisions(id: string) {
