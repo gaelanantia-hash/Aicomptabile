@@ -1,7 +1,7 @@
 {
   "win32": {
-    "version": "0.2.1",
+    "version": "0.2.2",
     "url": "",
-    "notes": "Synchronisation Google Drive plus légère (données compressées), installateur plus petit. Plan comptable SYSCOHADA et pays d’Afrique centrale, états financiers, clôture de l’exercice, écritures définitives (contre-passation), sauvegarde automatique quotidienne."
+    "notes": "Synchronisation Google Drive beaucoup plus légère : seules les modifications récentes sont envoyées, l’historique est archivé une seule fois. Sur une connexion facturée au volume (téléphone), les mises à jour attendent votre accord. Installateur plus petit. Plan comptable SYSCOHADA et pays d’Afrique centrale, états financiers, clôture de l’exercice, écritures définitives (contre-passation), sauvegarde automatique quotidienne."
   }
 }
