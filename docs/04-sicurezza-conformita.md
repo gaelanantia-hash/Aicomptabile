@@ -48,7 +48,10 @@ La chiave **privata** delle licenze e il token di amministrazione stanno solo in
 Rischi residui noti:
 
 - **Dati locali non cifrati.** Il database SQLite sul PC è leggibile da chi ha accesso alla sessione Windows del cliente. Mitigazione consigliata al cliente: sessione Windows con password e BitLocker.
-- **File su Drive in chiaro.** `aicom-data.json` è leggibile da chiunque acceda all'account Google del cliente (la compressione gzip non è cifratura). Mitigazione: verifica in due passaggi sull'account Google.
+- **Copia su Drive: cifrata.** `aicom-data.json` e gli archivi `aicom-audit-….json` sono cifrati (AES-256-GCM) con una chiave aziendale casuale, compressi prima della cifratura. Su Drive la chiave c'è solo «chiusa» con la password o il codice di soccorso di ogni utente (scrypt), quindi chi entra nell'account Google senza un identificativo AICOM non legge i dati (`electron/encryption.ts`). Limiti:
+  - **Revisioni in chiaro precedenti.** Le versioni salvate prima dell'aggiornamento restano nella cronologia di Drive finché Google non le elimina (di norma 30 giorni o 100 revisioni). Mitigazione: verifica in due passaggi sull'account Google.
+  - **Un utente disattivato** perde la sua serratura, ma la chiave non cambia: se l'aveva già su un PC (o ne aveva copiato il file), può ancora leggere le copie future. Per escluderlo davvero servirebbe cambiare la chiave (non ancora previsto).
+  - **Perdita totale delle credenziali.** Se si perdono tutte le password, tutti i codici di soccorso e tutti i PC, la copia su Drive non è più leggibile. I backup locali (`Paramètres → Sauvegardes`) sono in chiaro e restano utilizzabili.
 - **Licenza aggirabile da un utente esperto** che modifichi l'applicazione: la licenza è un controllo commerciale, non una protezione crittografica del software.
 - **Installer non firmato** finché non acquisti un certificato (vedi `06-rilascio.md`).
 - **Fuso orario del PC**: scadenze e tolleranza offline usano l'orologio del PC, che l'utente può cambiare.

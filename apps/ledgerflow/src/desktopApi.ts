@@ -1,7 +1,8 @@
 // Contract between the desktop shell (Electron main process) and the interface. Types only, plus the bridge lookup.
 
 export type Account = { sub: string; email: string }
-export type SyncStatus = 'disconnected' | 'synced' | 'pending' | 'syncing' | 'offline' | 'conflict' | 'locked' | 'reauth' | 'error'
+/** `unlock`: the Drive copy is encrypted and this PC does not hold the key yet; signing in opens it. */
+export type SyncStatus = 'disconnected' | 'synced' | 'pending' | 'syncing' | 'offline' | 'conflict' | 'locked' | 'reauth' | 'unlock' | 'error'
 export type SyncState = { status: SyncStatus; lastSyncAt?: string; detail?: string; lockedBy?: string }
 export type LicenseReason = 'missing' | 'invalid' | 'expired' | 'revoked' | 'device_limit' | 'grace_expired' | 'unreachable'
 export type LicenseState = { valid: boolean; customer?: string; expires?: string | null; validUntil?: string; reason?: LicenseReason; dev?: boolean; trial?: boolean }
@@ -12,7 +13,8 @@ export type AccessEvent = 'login' | 'login_failed' | 'logout' | 'user_created' |
 /** One line of the access history: who, on which PC, what, and when (ISO date and time). */
 export type AccessRow = { device: string; seq: number; at: string; user: string; deviceName: string; event: AccessEvent; hash: string }
 export type AppUser = { username: string; name: string; role: 'admin' | 'user'; active: boolean; createdAt: string }
-export type AuthFailure = 'invalid' | 'locked' | 'forbidden' | 'exists' | 'weak'
+/** `no_key`: on a new PC, this account cannot open the encrypted Drive copy yet; an account already used since the update must sign in first. */
+export type AuthFailure = 'invalid' | 'locked' | 'forbidden' | 'exists' | 'weak' | 'no_key'
 export type AuthResult = { ok: true; user: AppUser; recoveryCode?: string } | { ok: false; reason: AuthFailure; waitSeconds?: number }
 
 export type DesktopState = {

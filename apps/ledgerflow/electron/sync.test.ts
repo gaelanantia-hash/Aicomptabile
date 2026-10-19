@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
 import { mkdtempSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +8,7 @@ import { after, before, beforeEach, test } from 'node:test'
 import type { SyncState } from '../src/desktopApi.ts'
 import { openDatabase } from './database.ts'
 import { createDrive } from './drive.ts'
+import { createKeyring, isSealed, unseal, wrapKey } from './encryption.ts'
 import { googleEndpoints, refreshTokens } from './oauth.ts'
 import { createSync, decideSync, LOCK_TTL_MS } from './sync.ts'
 import { startFakeGoogle } from './testing/fakeGoogle.ts'
@@ -20,22 +22,33 @@ beforeEach(() => {
   google.options.quotaExceeded = false
   google.options.insufficientScopes = false
   google.options.onUpload = undefined
+  google.options.downloads = 0
   clock = Date.now()
 })
 
 const actor = { user: 'cliente@example.com', device: 'PC' }
 
 /** One installed PC signed in to the shared Google account. */
-function pc(name: string, endpoints = google.endpoints, auditChunkRows?: number) {
+// The PCs of a test share one company key, as PCs already unlocked would; `keyed: false` is a PC that has never opened the data.
+const testKey = randomBytes(32)
+const recoveryCode = 'ABCD-EFGH-JKMN'
+const testSlots = [wrapKey(testKey, 'cliente', 'password', 'motdepasse'), wrapKey(testKey, 'cliente', 'recovery', recoveryCode)]
+
+function pc(name: string, endpoints = google.endpoints, auditChunkRows?: number, keyed = true) {
   const dir = mkdtempSync(join(tmpdir(), `aicom-${name}-`))
   const refresh = google.grant()
   const db = openDatabase(join(dir, 'data.sqlite'))
+  const keyring = createKeyring(db)
+  if (keyed) {
+    keyring.setKey(testKey)
+    keyring.setSlots(testSlots)
+  }
   const states: SyncState[] = []
   let replaced = 0
   const drive = createDrive(endpoints, async () => (await refreshTokens(endpoints, { clientId: 'desktop' }, refresh)).accessToken)
-  const sync = createSync({ db, drive, device: { id: `id-${name}`, name }, backupDir: join(dir, 'backups'), onState: (state) => states.push(state), onReplaced: () => { replaced += 1 }, now: () => clock, auditChunkRows })
+  const sync = createSync({ db, drive, keyring, device: { id: `id-${name}`, name }, backupDir: join(dir, 'backups'), onState: (state) => states.push(state), onReplaced: () => { replaced += 1 }, now: () => clock, auditChunkRows })
   return {
-    db, sync, states, dir,
+    db, sync, states, dir, keyring,
     replaced: () => replaced,
     edit(records: Record<string, unknown>) {
       if (db.save({ clients: records }, actor, 'edit')) sync.markDirty()
@@ -45,7 +58,11 @@ function pc(name: string, endpoints = google.endpoints, auditChunkRows?: number)
   }
 }
 const dataFile = () => [...google.files.values()].find((file) => file.name === 'aicom-data.json')!
-const driveData = () => JSON.parse(gunzipSync(dataFile().revisions.at(-1)!.content).toString('utf8'))
+const readDrive = (content: Buffer) => {
+  const parsed = JSON.parse(gunzipSync(content).toString('utf8')) as unknown
+  return isSealed(parsed) ? JSON.parse(unseal(testKey, parsed)) : parsed
+}
+const driveData = () => readDrive(dataFile().revisions.at(-1)!.content)
 
 /** Lets the other PC's "open elsewhere" marker lapse, as when that PC has been closed for a while. */
 const later = () => { clock += LOCK_TTL_MS + 1 }
@@ -314,4 +331,65 @@ test('a Drive copy opened by hand, without its archived lines, is refused', asyn
   const other = pc('other')
   assert.throws(() => other.db.importData(driveData()), /incomplete Google Drive copy/)
   assert.equal(other.db.isEmpty(), true)
+})
+
+test('the Drive copy and the log archives are encrypted', async () => {
+  const one = pc('one', google.endpoints, 3)
+  for (const name of ['Hôtel Belvédère', 'Café des Arts', 'Les Jardins']) one.edit({ C1: { name } })
+  await one.sync.run()
+  for (const file of [dataFile(), ...auditFiles()]) {
+    const raw = gunzipSync(file.revisions.at(-1)!.content).toString('utf8')
+    assert.equal(isSealed(JSON.parse(raw)), true)
+    assert.doesNotMatch(raw, /Jardins|Belv|Arts/)
+  }
+  assert.equal(auditFiles().length, 1)
+  assert.equal(driveData().records.clients.C1.name, 'Les Jardins')
+})
+
+test('without a key nothing reaches Drive', async () => {
+  const one = pc('one', google.endpoints, undefined, false)
+  one.edit({ C1: { name: 'A' } })
+  assert.deepEqual(await one.sync.run().then((state) => [state.status, state.detail]), ['pending', 'no_key'])
+  assert.equal(google.files.size, 0)
+  assert.equal(one.db.getSetting('dirty'), '1')
+})
+
+test('a new PC opens the encrypted copy with a password or a recovery code, and nothing else', async () => {
+  const one = pc('one')
+  one.edit({ C1: { name: 'A' } })
+  await one.sync.run()
+
+  later()
+  const two = pc('two', google.endpoints, undefined, false)
+  assert.equal((await two.sync.run()).status, 'unlock')
+  assert.equal(two.db.isEmpty(), true)
+  // While it waits for a sign-in, the routine passes do not download the copy again.
+  const downloads = google.options.downloads
+  await two.sync.run()
+  assert.equal(google.options.downloads, downloads)
+
+  assert.equal(await two.sync.unlock('cliente', 'password', 'wrong password'), 'invalid')
+  assert.equal(await two.sync.unlock('somebody', 'password', 'motdepasse'), 'no_slot')
+  assert.equal(two.db.isEmpty(), true)
+  assert.equal(await two.sync.unlock('Cliente', 'password', 'motdepasse'), 'ok')
+  assert.deepEqual(two.clients(), { C1: { name: 'A' } })
+  assert.equal(two.keyring.key()?.equals(testKey), true)
+
+  later()
+  const three = pc('three', google.endpoints, undefined, false)
+  assert.equal((await three.sync.run()).status, 'unlock')
+  assert.equal(await three.sync.unlock('cliente', 'recovery', recoveryCode), 'ok')
+  assert.deepEqual(three.clients(), { C1: { name: 'A' } })
+})
+
+test('a PC whose key does not match the Drive copy asks for a sign-in instead of reading it', async () => {
+  const one = pc('one')
+  one.edit({ C1: { name: 'A' } })
+  await one.sync.run()
+  later()
+  const two = pc('two')
+  two.keyring.setKey(randomBytes(32))
+  assert.equal((await two.sync.run()).status, 'unlock')
+  assert.equal(await two.sync.unlock('cliente', 'password', 'motdepasse'), 'ok')
+  assert.deepEqual(two.clients(), { C1: { name: 'A' } })
 })

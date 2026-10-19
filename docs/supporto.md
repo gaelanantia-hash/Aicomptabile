@@ -23,6 +23,8 @@ Per chi risponde ai clienti. I comandi `npm run admin` si eseguono da `apps/lice
 | Licenza: «n'a pas pu être vérifiée depuis trop longtemps» | PC offline da più di 14 giorni | Collegarsi a internet e riaprire AICOM |
 | Licenza: «désactivée» | Licenza revocata | Verificare lo stato del contratto |
 | «Mettez à jour AICOM» | Dati salvati da una versione più recente su un altro PC | Aggiornare AICOM su questo PC |
+| Su un PC nuovo: «Ce compte ne peut pas encore ouvrir les données chiffrées» | L'utente non ha più fatto accesso da quando la cifratura è stata attivata, quindi non ha ancora la sua serratura | Accedere prima con un altro account (per esempio l'amministratore); poi l'utente accede normalmente, e al suo accesso riceve la serratura |
+| Su un PC nuovo: password e codice di soccorso persi per tutti gli utenti | — | La copia su Drive non si può aprire. Recuperare da un PC che usa ancora AICOM, oppure da un backup locale (`%APPDATA%\AICOM\backups`) |
 | Login Google rifiutato con account aziendale | L'amministratore di Google Workspace blocca le app di terze parti | L'amministratore del cliente deve autorizzare AICOM nella console di amministrazione |
 | Dato cancellato o modificato per errore | — | *Journal d'activité* mostra chi, quando e il valore precedente; *Paramètres → Sauvegardes → Restaurer* riporta a una versione precedente |
 | Il file `aicom-data.json` è stato cancellato da Drive | — | Riaprire AICOM sul PC: lo ricrea dalla copia locale. Se anche il PC è perso, recuperare dal cestino di Drive (30 giorni) |

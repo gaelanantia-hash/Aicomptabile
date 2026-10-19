@@ -15,7 +15,7 @@ AICOM è un programma installato sul tuo PC. I tuoi dati contabili restano sul t
 Clienti, fornitori, articoli, documenti e scritture che inserisci in AICOM sono salvati:
 
 - in un database sul tuo PC;
-- in un file chiamato `aicom-data.json` e nei file di storico `aicom-audit-….json`, nella cartella `AICOM` del tuo Google Drive.
+- in un file chiamato `aicom-data.json` e nei file di storico `aicom-audit-….json`, nella cartella `AICOM` del tuo Google Drive. Questi file sono cifrati: per leggerli serve un identificativo AICOM della tua azienda.
 
 Questi dati non vengono inviati ai nostri server. Ne sei tu il titolare; la conservazione su Google Drive è regolata dal tuo rapporto con Google.
 

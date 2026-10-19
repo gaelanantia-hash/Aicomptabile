@@ -11,7 +11,7 @@ export async function startFakeGoogle() {
   const refreshTokens = new Map<string, { sub: string; email: string }>()
   const accessTokens = new Set<string>()
   const codes = new Map<string, { challenge: string; redirectUri: string }>()
-  const options = { quotaExceeded: false, insufficientScopes: false, account: { sub: 'sub-1', email: 'cliente@example.com' }, onUpload: undefined as (() => void) | undefined }
+  const options = { quotaExceeded: false, insufficientScopes: false, account: { sub: 'sub-1', email: 'cliente@example.com' }, onUpload: undefined as (() => void) | undefined, downloads: 0 }
 
   const body = (request: IncomingMessage) => new Promise<Buffer>((resolve) => {
     const chunks: Buffer[] = []
@@ -117,6 +117,7 @@ export async function startFakeGoogle() {
         return json(response, 200, describe(file))
       }
       if (url.searchParams.get('alt') === 'media') {
+        options.downloads += 1
         const revision = revisionId ? file.revisions.find((item) => item.id === revisionId) : file.revisions.at(-1)
         if (!revision) return json(response, 404, { error: { message: 'Revision not found' } })
         response.writeHead(200, { 'Content-Type': 'application/json' }).end(revision.content)

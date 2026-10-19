@@ -5,12 +5,13 @@ import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, safeStorage, shell, type IpcMainInvokeEvent } from 'electron'
 import electronUpdater from 'electron-updater'
-import type { Account, DesktopState, Snapshot, SyncState, UpdateState } from '../src/desktopApi.ts'
+import type { Account, AuthResult, DesktopState, Snapshot, SyncState, UpdateState } from '../src/desktopApi.ts'
 import { createAuth, type Auth } from './auth.ts'
 import { createAutoBackup } from './backup.ts'
 import { loadConfig } from './config.ts'
 import { openDatabase, type Database } from './database.ts'
 import { createDrive } from './drive.ts'
+import { createKeyring } from './encryption.ts'
 import { createLicenseClient } from './license.ts'
 import { isMeteredConnection } from './network.ts'
 import { AuthRevokedError, buildAuthUrl, createPkce, exchangeCode, listenForRedirect, readAccount, refreshTokens, revokeToken, type Tokens } from './oauth.ts'
@@ -95,14 +96,15 @@ function openSession(account?: Account) {
   closeSession()
   // One local database per Google account, so switching account never mixes two companies' data.
   const db = openDatabase(join(userData, `data-${account?.sub ?? 'local'}.sqlite`))
+  const keyring = createKeyring(db)
   const sync = account && createSync({
-    db, device, backupDir: join(userData, 'backups'),
+    db, keyring, device, backupDir: join(userData, 'backups'),
     drive: createDrive(config.endpoints, accessToken),
     onState: (state) => send('sync', state),
     onReplaced: () => send('data-replaced'),
   })
   // Signing in or out, and every account change, adds a line to the access history, which must then reach Drive.
-  session = { account, db, sync, auth: createAuth(db, device, () => sync?.markDirty()) }
+  session = { account, db, sync, auth: createAuth(db, device, () => sync?.markDirty(), Date.now, keyring) }
   if (sync) heartbeat = setInterval(() => { void sync.run() }, 60_000)
   else {
     // Without Drive there is no revision history: a dated copy a day, the last 30 kept, guards against a damaged or mistaken database.
@@ -239,6 +241,21 @@ function requireSignedIn() {
   return open
 }
 
+/**
+ * On a PC that cannot read the encrypted Drive copy yet, the credentials typed at sign-in first open its key and fetch the data;
+ * the sign-in itself then runs as usual. Returns the failure to show, or nothing to go on.
+ */
+async function unlockDriveCopy(username: string, kind: 'password' | 'recovery', secret: string): Promise<AuthResult | undefined> {
+  const { sync, auth } = requireSession()
+  if (sync?.state().status !== 'unlock') return undefined
+  const blocked = auth.blocked()
+  if (blocked) return blocked
+  const outcome = await sync.unlock(username, kind, secret)
+  if (outcome === 'no_slot') return { ok: false, reason: 'no_key' }
+  if (outcome === 'invalid') return auth.reject(username)
+  return undefined
+}
+
 const handlers: Record<string, (...args: never[]) => unknown> = {
   getState: () => currentState(),
   activateLicense: (code: string) => license.activate(String(code)),
@@ -303,7 +320,10 @@ const handlers: Record<string, (...args: never[]) => unknown> = {
     saveSettings()
     return currentState()
   },
-  login: (username: string, password: string) => requireSession().auth.login(String(username), String(password)),
+  login: async (username: string, password: string) => {
+    const blocked = await unlockDriveCopy(String(username), 'password', String(password))
+    return blocked ?? requireSession().auth.login(String(username), String(password))
+  },
   logout: () => {
     session?.auth.logout()
     return currentState()
@@ -312,7 +332,10 @@ const handlers: Record<string, (...args: never[]) => unknown> = {
   listUsers: () => requireSession().auth.list(),
   setUserActive: (username: string, active: boolean) => requireSession().auth.setActive(String(username), Boolean(active)),
   changePassword: (username: string, password: string) => requireSession().auth.changePassword(String(username), String(password)),
-  recoverPassword: (username: string, code: string, password: string) => requireSession().auth.recover(String(username), String(code), String(password)),
+  recoverPassword: async (username: string, code: string, password: string) => {
+    const blocked = await unlockDriveCopy(String(username), 'recovery', String(code ?? '').trim().toUpperCase())
+    return blocked ?? requireSession().auth.recover(String(username), String(code), String(password))
+  },
   listAccess: (limit: number, offset: number) => {
     const { db } = requireSignedIn()
     return { ...db.listAccess(Number(limit) || 50, Number(offset) || 0), intact: db.verifyAccess() }

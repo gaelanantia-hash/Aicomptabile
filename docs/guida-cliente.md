@@ -36,7 +36,7 @@ Premi *Ouvrir AICOM*.
 ## 3. Dove sono i tuoi dati
 
 - Sul tuo PC, per lavorare velocemente anche senza internet.
-- Nel tuo Google Drive, cartella **AICOM**: file `aicom-data.json` e file `aicom-audit-….json` (lo storico delle modifiche). **Non spostarli, non rinominarli, non cancellarli e non modificarli a mano.**
+- Nel tuo Google Drive, cartella **AICOM**: file `aicom-data.json` e file `aicom-audit-….json` (lo storico delle modifiche). Sono **cifrati**: chi entra nel tuo account Google non può leggerli senza un identificativo AICOM. **Non spostarli, non rinominarli, non cancellarli e non modificarli a mano.**
 - I dati usano lo spazio già disponibile nel tuo account Google. Se la quota condivisa con Gmail e Google Foto non basta, libera spazio o aumenta il piano direttamente tramite Google.
 
 In basso a sinistra un indicatore ti dice lo stato:
@@ -74,7 +74,9 @@ Nella scheda *Au Magasin* trovi, per articolo, le quantità ricevute dai fornito
 
 ## 7. Usare AICOM su un secondo PC
 
-Installa AICOM, inserisci lo **stesso codice di licenza** e collega lo **stesso account Google**: ritrovi tutti i dati. La licenza indica su quanti PC puoi usarla.
+Installa AICOM, inserisci lo **stesso codice di licenza** e collega lo **stesso account Google**, poi accedi con il tuo **identificativo e la tua password AICOM**: aprono i dati cifrati e li scaricano su questo PC. Se hai dimenticato la password, usa *Mot de passe oublié ?* con il codice di soccorso. La licenza indica su quanti PC puoi usarla.
+
+**Conserva il codice di soccorso.** Se si perdono tutte le password e tutti i codici di soccorso, i dati su Google Drive non si possono più aprire su un PC nuovo.
 
 Usa AICOM su **un PC alla volta**. Se lo apri su un secondo PC mentre è aperto sul primo, AICOM ti avvisa.
 

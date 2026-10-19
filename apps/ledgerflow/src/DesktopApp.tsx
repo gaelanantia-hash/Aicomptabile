@@ -76,6 +76,7 @@ function syncLabel(sync: SyncState, localOnly: boolean, tr: Translate): { text: 
     case 'conflict': return { text: tr('Conflit à résoudre', 'Conflict to resolve'), tone: 'warn' }
     case 'locked': return { text: tr('Ouvert sur un autre PC', 'Open on another PC'), tone: 'warn' }
     case 'reauth': return { text: tr('Reconnexion Google requise', 'Google sign-in required'), tone: 'warn' }
+    case 'unlock': return { text: tr('Connexion requise pour ouvrir les données', 'Sign in to open the data'), tone: 'warn' }
     case 'error': return { text: sync.detail === 'quota' ? tr('Espace Google Drive plein', 'Google Drive is full') : sync.detail === 'newer_schema' ? tr('Mettez à jour AICOM', 'Update AICOM') : sync.detail === 'insufficient_scopes' ? tr('Autorisation Google à renouveler', 'Google permission needs renewal') : tr('Erreur de synchronisation', 'Sync error'), tone: 'warn' }
     default: return { text: tr('Non connecté', 'Not connected'), tone: 'warn' }
   }
@@ -147,7 +148,8 @@ export function DesktopApp({ api }: { api: DesktopApi }) {
 
   const connected = Boolean(state && state.license.valid && (state.account || state.localOnly))
   // Accounts exist but nobody is signed in: the sign-in screen comes before anything else, including the rest of setup.
-  const mustSignIn = Boolean(connected && state!.auth.hasUsers && !state!.auth.user)
+  // An encrypted Drive copy this PC cannot open yet is unlocked by signing in, before any data are on the PC.
+  const mustSignIn = Boolean(connected && ((state!.auth.hasUsers && !state!.auth.user) || state!.sync.status === 'unlock'))
   const ready = Boolean(connected && store && state!.auth.user)
   // Once setup is needed it stays on screen until its last step is confirmed, even after the missing piece is in place.
   if (state && !ready && !mustSignIn && !setupActive) setSetupActive(true)
@@ -200,6 +202,7 @@ function authMessage(result: Extract<AuthResult, { ok: false }>, tr: Translate) 
     case 'locked': return tr(`Trop de tentatives. Réessayez dans ${result.waitSeconds} secondes.`, `Too many attempts. Try again in ${result.waitSeconds} seconds.`)
     case 'forbidden': return tr('Action réservée à un administrateur.', 'Only an administrator can do this.')
     case 'exists': return tr('Cet identifiant existe déjà.', 'This username already exists.')
+    case 'no_key': return tr('Ce compte ne peut pas encore ouvrir les données chiffrées sur un nouveau PC. Connectez-vous d’abord avec un compte déjà utilisé depuis la mise à jour (par exemple l’administrateur).', 'This account cannot open the encrypted data on a new PC yet. First sign in with an account already used since the update (for example the administrator).')
     case 'weak': return tr('Identifiant : 3 à 40 lettres, chiffres, point ou tiret. Mot de passe : 8 caractères minimum.', 'Username: 3 to 40 letters, digits, dot or dash. Password: at least 8 characters.')
     default: return tr('Identifiant, mot de passe ou code incorrect.', 'Wrong username, password or code.')
   }
@@ -254,6 +257,7 @@ function SignIn({ api, state, locale, setLocale, tr, onSignedIn }: { api: Deskto
             <div className="portal-form"><button className="portal-submit" type="button" onClick={() => { void onSignedIn() }}>{tr('Continuer', 'Continue')}</button></div>
           </> : <>
             <h1>{mode === 'login' ? tr('Connexion à AICOM', 'Sign in to AICOM') : tr('Mot de passe oublié', 'Forgotten password')}</h1>
+            {state.sync.status === 'unlock' && <p className="portal-description">{tr('Vos données sur Google Drive sont chiffrées. Votre identifiant AICOM les ouvre sur ce PC.', 'Your data on Google Drive are encrypted. Your AICOM sign-in opens them on this PC.')}</p>}
             <p className="portal-description">{mode === 'login' ? tr('Saisissez votre identifiant et votre mot de passe.', 'Enter your username and password.') : tr('Saisissez votre identifiant, le code de secours reçu à la création du compte, puis un nouveau mot de passe.', 'Enter your username, the recovery code given when the account was created, then a new password.')}</p>
             <form className="portal-form" onSubmit={(event) => { event.preventDefault(); void submit() }}>
               <label>{tr('Identifiant', 'Username')}<input value={username} required autoFocus autoComplete="username" spellCheck={false} onChange={(event) => setUsername(event.target.value)} /></label>

@@ -1,6 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import type { AppUser, AuthResult } from '../src/desktopApi.ts'
 import type { Database } from './database.ts'
+import type { Keyring } from './encryption.ts'
 import type { Device } from './sync.ts'
 
 /** Stored with the company data (and so in the customer's Drive). Passwords and recovery codes are kept only as salted scrypt hashes. */
@@ -34,8 +35,9 @@ function newRecoveryCode() {
 /**
  * Sign-in to the application. Accounts belong to the company data, so the same credentials work on every PC of the customer.
  * Every attempt, successful or not, is written to the access history.
+ * Each password and recovery code also opens the data key (`keyring`), so the same credentials unlock the Drive copy on a new PC.
  */
-export function createAuth(db: Database, device: Device, onChange: () => void, now: () => number = Date.now) {
+export function createAuth(db: Database, device: Device, onChange: () => void, now: () => number = Date.now, keyring?: Keyring) {
   let current: StoredUser | undefined
   let failures = 0
   let lockedUntil = 0
@@ -57,6 +59,9 @@ export function createAuth(db: Database, device: Device, onChange: () => void, n
 
   return {
     hasUsers: () => users().length > 0,
+    /** For attempts checked elsewhere (unlocking the Drive copy on a new PC): same lockout and same history line as a wrong password. */
+    blocked: locked,
+    reject: failed,
     current: () => current && publicUser(current),
     list: () => current ? users().map(publicUser) : [],
 
@@ -67,6 +72,8 @@ export function createAuth(db: Database, device: Device, onChange: () => void, n
       if (!user || !user.active || !matches(String(password ?? ''), user.salt, user.hash)) return failed(username)
       failures = 0
       current = user
+      // Accounts from before encryption get their slot the first time they sign in after the update.
+      keyring?.grant(user.username, 'password', String(password))
       log(user.username, 'login')
       return { ok: true, user: publicUser(user) }
     },
@@ -94,6 +101,8 @@ export function createAuth(db: Database, device: Device, onChange: () => void, n
         ...seal(input.password), recoverySalt: recovery.salt, recoveryHash: recovery.hash,
       }
       save(user)
+      keyring?.grant(username, 'password', input.password)
+      keyring?.grant(username, 'recovery', recoveryCode)
       log(username, 'user_created')
       // The very first account signs in straight away; it has just proved it knows the password.
       if (first) {
@@ -109,6 +118,8 @@ export function createAuth(db: Database, device: Device, onChange: () => void, n
       // The last active administrator cannot be switched off: nobody could manage accounts any more.
       if (!active && user.role === 'admin' && users().filter((item) => item.role === 'admin' && item.active).length <= 1) return { ok: false, reason: 'forbidden' }
       save({ ...user, active })
+      // Re-enabled accounts get their slot back at their next sign-in on a PC that holds the key.
+      if (!active) keyring?.revoke(user.username)
       log(user.username, active ? 'user_enabled' : 'user_disabled')
       return { ok: true, user: publicUser({ ...user, active }) }
     },
@@ -119,6 +130,7 @@ export function createAuth(db: Database, device: Device, onChange: () => void, n
       if (String(password ?? '').length < MIN_PASSWORD_LENGTH) return { ok: false, reason: 'weak' }
       const updated = { ...user, ...seal(password) }
       save(updated)
+      keyring?.grant(user.username, 'password', password)
       if (current.username === user.username) current = updated
       log(user.username, 'password_changed')
       return { ok: true, user: publicUser(updated) }
@@ -135,6 +147,8 @@ export function createAuth(db: Database, device: Device, onChange: () => void, n
       const recovery = seal(next)
       const updated = { ...user, ...seal(password), recoverySalt: recovery.salt, recoveryHash: recovery.hash }
       save(updated)
+      keyring?.grant(user.username, 'password', password)
+      keyring?.grant(user.username, 'recovery', next)
       failures = 0
       current = updated
       log(user.username, 'password_recovered')
