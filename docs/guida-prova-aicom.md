@@ -15,7 +15,7 @@ Non inviare al referente password, codici di recupero o documenti contabili real
 
 ## Installazione e primo accesso
 
-1. Scarica `AICOM Setup 0.1.0.exe` dal referente. Avvialo con doppio clic e completa l'installazione.
+1. Scarica `AICOM-Setup-0.2.1.exe` dal link del referente (circa 100 MB: se la connessione è lenta, avvia il download quando la rete è più libera; il browser può riprenderlo se si interrompe). Avvialo con doppio clic e completa l'installazione. Se hai già la 0.1.0, installa sopra: i dati restano. Dalla 0.2.0 in poi gli aggiornamenti si scaricano da soli e si installano alla chiusura dell'app.
 2. Avvia AICOM dal collegamento creato sul desktop o dal menu Start.
 3. Inserisci il codice di licenza fornito.
 4. Premi *Se connecter avec Google*, scegli l'account autorizzato e concedi ad AICOM l'accesso richiesto al proprio file su Drive. Non occorre inserire l'e-mail a mano né configurare Google Cloud.
