@@ -34,7 +34,7 @@ Premi *Ouvrir AICOM*.
 ## 3. Dove sono i tuoi dati
 
 - Sul tuo PC, per lavorare velocemente anche senza internet.
-- Nel tuo Google Drive, cartella **AICOM**, file `aicom-data.json`. **Non spostarlo, non rinominarlo e non modificarlo a mano.**
+- Nel tuo Google Drive, cartella **AICOM**: file `aicom-data.json` e file `aicom-audit-….json` (lo storico delle modifiche). **Non spostarli, non rinominarli, non cancellarli e non modificarli a mano.**
 - I dati usano lo spazio già disponibile nel tuo account Google. Se la quota condivisa con Gmail e Google Foto non basta, libera spazio o aumenta il piano direttamente tramite Google.
 
 In basso a sinistra un indicatore ti dice lo stato:

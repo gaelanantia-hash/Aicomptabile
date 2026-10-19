@@ -26,6 +26,7 @@ Per chi risponde ai clienti. I comandi `npm run admin` si eseguono da `apps/lice
 | Login Google rifiutato con account aziendale | L'amministratore di Google Workspace blocca le app di terze parti | L'amministratore del cliente deve autorizzare AICOM nella console di amministrazione |
 | Dato cancellato o modificato per errore | — | *Journal d'activité* mostra chi, quando e il valore precedente; *Paramètres → Sauvegardes → Restaurer* riporta a una versione precedente |
 | Il file `aicom-data.json` è stato cancellato da Drive | — | Riaprire AICOM sul PC: lo ricrea dalla copia locale. Se anche il PC è perso, recuperare dal cestino di Drive (30 giorni) |
+| Un file `aicom-audit-….json` è stato cancellato da Drive | Errore di sincronizzazione sui PC che non lo avevano ancora scaricato (per esempio un PC nuovo o reinstallato); gli altri continuano a funzionare | Recuperarlo dal cestino di Drive (30 giorni) |
 
 ## Dove guardare
 

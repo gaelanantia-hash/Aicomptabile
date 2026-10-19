@@ -7,7 +7,7 @@
 | PC del cliente | Copia di lavoro (SQLite) | `%APPDATA%\AICOM\data-<id account Google>.sqlite` |
 | PC del cliente | Token Google cifrato dal sistema operativo | `%APPDATA%\AICOM\auth.bin` |
 | PC del cliente | Salvataggi automatici prima di ripristini e conflitti | `%APPDATA%\AICOM\backups\` |
-| Google Drive del cliente | Copia sincronizzata, con cronologia versioni | cartella `AICOM`, file `aicom-data.json` |
+| Google Drive del cliente | Copia sincronizzata, con cronologia versioni | cartella `AICOM`, file `aicom-data.json` e archivi del registro attività `aicom-audit-<da>-<a>.json` |
 | Tuo servizio licenze | Solo licenze e PC attivati | Firestore, raccolta `licenses` |
 
 Un database locale per ogni account Google: cambiando account non si mescolano mai i dati di due aziende.
@@ -54,8 +54,9 @@ Nel database locale ogni record è una riga della tabella `records (collection, 
 
 1. Ogni modifica è scritta subito nel database locale.
 2. Dopo 4 secondi senza altre modifiche l'app carica `aicom-data.json` su Drive, compresso con gzip per ridurre il traffico sulle connessioni lente. Il nome resta `.json` perché le versioni precedenti trovino lo stesso file; la lettura accetta sia il formato compresso sia il JSON semplice scritto dalle versioni precedenti (`decodeData` in `electron/drive.ts`).
-3. Ogni 60 secondi l'app controlla se Drive contiene una versione più recente e, se sì, la scarica.
-4. Alla chiusura l'app invia le modifiche ancora in attesa.
+3. Il registro attività non viaggia per intero a ogni salvataggio. Quando le righe non ancora archiviate arrivano a 250 (`AUDIT_CHUNK_ROWS` in `electron/sync.ts`), l'app le scrive una sola volta in un file `aicom-audit-<da>-<a>.json`, che non cambia più. `aicom-data.json` contiene i dati, le righe successive all'ultimo archivio e l'elenco degli archivi (`auditArchive`). Ogni PC scarica un archivio una sola volta e tiene sempre il registro completo in locale. I backup locali contengono sempre il registro completo. Con 3.300 righe di registro, un salvataggio passa da circa 76 KB a circa 4 KB inviati. Dal formato 3 (`schemaVersion`) le versioni precedenti dell'app chiedono di essere aggiornate invece di leggere il file.
+4. Ogni 60 secondi l'app controlla se Drive contiene una versione più recente e, se sì, la scarica.
+5. Alla chiusura l'app invia le modifiche ancora in attesa.
 
 L'app ricorda quale versione di Drive ha visto per ultima. La decisione è nella funzione `decideSync` di `electron/sync.ts`:
 

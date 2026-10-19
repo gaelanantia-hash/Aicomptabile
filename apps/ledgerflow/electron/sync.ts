@@ -1,15 +1,21 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { SyncState } from '../src/desktopApi.ts'
-import type { Database } from './database.ts'
+import type { AuditRow, SyncState } from '../src/desktopApi.ts'
+import type { Database, DataFile } from './database.ts'
 import { NewerSchemaError } from './database.ts'
 import { DriveError, type Drive } from './drive.ts'
 import { AuthRevokedError } from './oauth.ts'
 
 export type SyncAction = 'create' | 'push' | 'pull' | 'conflict' | 'noop'
 export type Device = { id: string; name: string }
-export type SyncDeps = { db: Database; drive: Drive; device: Device; backupDir: string; onState(state: SyncState): void; onReplaced(): void; now?: () => number }
+export type SyncDeps = { db: Database; drive: Drive; device: Device; backupDir: string; onState(state: SyncState): void; onReplaced(): void; now?: () => number; auditChunkRows?: number }
 export type Sync = ReturnType<typeof createSync>
+
+/**
+ * Activity-log lines move to their own Drive file once this many have built up since the last one. That file is
+ * uploaded once and downloaded once per PC, so the copy sent on every save stays small however long the history grows.
+ */
+export const AUDIT_CHUNK_ROWS = 250
 
 /** Another PC counts as "currently open" for this long after its last heartbeat. */
 export const LOCK_TTL_MS = 150_000
@@ -25,7 +31,7 @@ export function decideSync(remoteHead: string | undefined, syncedHead: string | 
   return dirty && !localEmpty ? 'conflict' : 'pull'
 }
 
-export function createSync({ db, drive, device, backupDir, onState, onReplaced, now = Date.now }: SyncDeps) {
+export function createSync({ db, drive, device, backupDir, onState, onReplaced, now = Date.now, auditChunkRows = AUDIT_CHUNK_ROWS }: SyncDeps) {
   let state: SyncState = { status: 'pending', lastSyncAt: db.getSetting('lastSyncAt') }
   let running: Promise<SyncState> | undefined
   let again = false
@@ -48,9 +54,32 @@ export function createSync({ db, drive, device, backupDir, onState, onReplaced, 
     return file
   }
 
+  /** Archives the log lines not yet on Drive when there are enough of them. Recorded before the data file goes up, so a failed upload reuses it. */
+  async function archiveAudit() {
+    const pending = db.auditRows(db.auditChunks().at(-1)?.lastId ?? 0)
+    if (pending.length < auditChunkRows) return
+    const firstId = pending[0].id
+    const lastId = pending.at(-1)!.id
+    const file = await drive.createAuditFile(firstId, lastId, JSON.stringify({ format: 'aicom-audit', audit: pending }))
+    db.addAuditChunk({ fileId: file.id, firstId, lastId })
+  }
+
+  /** Completes a Drive copy with its archived log lines: those this PC already holds are reused, only the others are downloaded. */
+  async function withArchivedAudit(data: DataFile): Promise<DataFile> {
+    const archive = data.auditArchive ?? []
+    if (!archive.length) return data
+    const local = db.auditChunks()
+    let shared = 0
+    while (shared < archive.length && local[shared]?.fileId === archive[shared].fileId) shared += 1
+    const audit: AuditRow[] = shared ? db.auditRows(0, archive[shared - 1].lastId) : []
+    for (const chunk of archive.slice(shared)) audit.push(...(JSON.parse(await drive.download(chunk.fileId)) as { audit: AuditRow[] }).audit)
+    return { ...data, audit: [...audit, ...data.audit] }
+  }
+
   async function upload(fileId: string | undefined) {
     const before = changes
-    const content = JSON.stringify(db.exportData(device.name))
+    await archiveAudit()
+    const content = JSON.stringify(db.exportData(device.name, true))
     const file = fileId ? await drive.updateDataFile(fileId, content, lockProperties()) : await drive.createDataFile(content, lockProperties())
     db.setSetting('fileId', file.id)
     db.setSetting('syncedHead', file.headRevisionId)
@@ -60,7 +89,7 @@ export function createSync({ db, drive, device, backupDir, onState, onReplaced, 
   }
 
   async function download(fileId: string, head: string | undefined, revision?: string) {
-    db.importData(JSON.parse(await drive.download(fileId, revision)))
+    db.importData(await withArchivedAudit(JSON.parse(await drive.download(fileId, revision)) as DataFile))
     db.setSetting('fileId', fileId)
     db.setSetting('syncedHead', head)
     db.setSetting('dirty', revision ? '1' : '0')

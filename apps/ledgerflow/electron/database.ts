@@ -3,7 +3,13 @@ import { DatabaseSync } from 'node:sqlite'
 import type { AccessEvent, AccessRow, AuditRow, Snapshot } from '../src/desktopApi.ts'
 
 export type Actor = { user: string; device: string }
-export type DataFile = { format: 'aicom-data'; schemaVersion: number; exportedAt: string; device: string; records: Snapshot; audit: AuditRow[]; access?: AccessRow[] }
+/** A run of activity-log lines stored once in its own Drive file, which never changes afterwards. */
+export type AuditChunk = { fileId: string; firstId: number; lastId: number }
+/**
+ * Exchange file (Drive copy, backups). Backups always carry the whole activity log in `audit`.
+ * The Drive copy lists the archived lines in `auditArchive` and carries only the lines after them.
+ */
+export type DataFile = { format: 'aicom-data'; schemaVersion: number; exportedAt: string; device: string; records: Snapshot; audit: AuditRow[]; access?: AccessRow[]; auditArchive?: AuditChunk[] }
 export type Database = ReturnType<typeof openDatabase>
 
 /** The data was written by a more recent version of the app: this one must be updated before it can open it. */
@@ -31,6 +37,8 @@ const migrations = [
    CREATE INDEX access_log_at ON access_log (at DESC);
    CREATE TRIGGER access_log_no_delete BEFORE DELETE ON access_log BEGIN SELECT RAISE(ABORT, 'The access history cannot be deleted.'); END;
    CREATE TRIGGER access_log_no_update BEFORE UPDATE ON access_log BEGIN SELECT RAISE(ABORT, 'The access history cannot be modified.'); END;`,
+  // Activity-log archive files on Drive whose lines this database holds, so a sync only transfers the lines after them.
+  `CREATE TABLE audit_chunks (file_id TEXT PRIMARY KEY, first_id INTEGER NOT NULL, last_id INTEGER NOT NULL);`,
 ]
 
 // Upgrades of the exchange file itself (Drive copy, backups), keyed by the version they upgrade from.
@@ -137,6 +145,10 @@ export function openDatabase(file: string) {
     if (value === undefined) db.prepare('DELETE FROM settings WHERE key = ?').run(key)
     else db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').run(key, value)
   }
+  const auditChunks = () => (db.prepare('SELECT file_id, first_id, last_id FROM audit_chunks ORDER BY last_id').all() as { file_id: string; first_id: number; last_id: number }[])
+    .map((row): AuditChunk => ({ fileId: row.file_id, firstId: row.first_id, lastId: row.last_id }))
+  const auditRows = (afterId: number, throughId = Number.MAX_SAFE_INTEGER) =>
+    (db.prepare('SELECT * FROM audit WHERE id > ? AND id <= ? ORDER BY id').all(afterId, throughId) as AuditRecord[]).map(toAuditRow)
   const accessRows = (order: string, ...parameters: number[]) => (db.prepare(`SELECT * FROM access_log ${order}`).all(...parameters) as AccessRecord[]).map(toAccessRow)
 
   return {
@@ -220,9 +232,18 @@ export function openDatabase(file: string) {
       return true
     },
 
-    exportData(device: string): DataFile {
-      const audit = (db.prepare('SELECT * FROM audit ORDER BY id').all() as AuditRecord[]).map(toAuditRow)
-      return { format: 'aicom-data', schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), device, records: load(true), audit, access: accessRows('ORDER BY device, seq') }
+    /** `forDrive`: leaves out the activity-log lines already archived on Drive and lists their files instead. */
+    exportData(device: string, forDrive = false): DataFile {
+      const base = { format: 'aicom-data' as const, schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), device, records: load(true), access: accessRows('ORDER BY device, seq') }
+      if (!forDrive) return { ...base, audit: auditRows(0) }
+      const archive = auditChunks()
+      return { ...base, audit: auditRows(archive.at(-1)?.lastId ?? 0), auditArchive: archive }
+    },
+
+    auditChunks,
+    auditRows,
+    addAuditChunk(chunk: AuditChunk) {
+      db.prepare('INSERT INTO audit_chunks (file_id, first_id, last_id) VALUES (?, ?, ?)').run(chunk.fileId, chunk.firstId, chunk.lastId)
     },
 
     /** Replaces the local copy with a data file (from Drive or from a backup). The access history is only ever added to. */
@@ -231,8 +252,13 @@ export function openDatabase(file: string) {
       if (!data || data.format !== 'aicom-data' || typeof data.schemaVersion !== 'number' || typeof data.records !== 'object') throw new Error('This file is not an AICOM data file.')
       if (data.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError()
       while (data.schemaVersion < SCHEMA_VERSION) data = dataUpgrades[data.schemaVersion]?.(data) ?? { ...data, schemaVersion: data.schemaVersion + 1 }
+      // A Drive copy read on its own lacks its archived lines: only the sync, which fetches them, may import it.
+      const ids = new Set((data.audit ?? []).map((row) => row.id))
+      if (data.auditArchive?.some((chunk) => !ids.has(chunk.lastId))) throw new Error('This file is an incomplete Google Drive copy. Use a backup file instead.')
       transaction(() => {
-        db.exec('DELETE FROM records; DELETE FROM audit;')
+        db.exec('DELETE FROM records; DELETE FROM audit; DELETE FROM audit_chunks;')
+        const chunk = db.prepare('INSERT INTO audit_chunks (file_id, first_id, last_id) VALUES (?, ?, ?)')
+        for (const item of data.auditArchive ?? []) chunk.run(item.fileId, item.firstId, item.lastId)
         const insert = db.prepare('INSERT INTO records (collection, id, data) VALUES (?, ?, ?)')
         for (const [collection, records] of Object.entries(data.records)) {
           for (const [id, record] of Object.entries(records)) insert.run(collection, id, JSON.stringify(record))

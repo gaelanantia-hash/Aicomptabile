@@ -65,6 +65,14 @@ export function createDrive(endpoints: GoogleEndpoints, getToken: (refresh?: boo
     return list.files[0]
   }
 
+  async function create(name: string, content: string, appProperties: Record<string, string>) {
+    const folderType = 'application/vnd.google-apps.folder'
+    const folder = await find(DATA_FOLDER, folderType)
+      ?? await json<DriveFile>(`${endpoints.api}/files?fields=id`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: DATA_FOLDER, mimeType: folderType }) })
+    const upload = await multipart({ name, parents: [folder.id], mimeType: DATA_TYPE, appProperties }, content)
+    return json<DriveFile>(`${endpoints.upload}/files?uploadType=multipart&fields=${fileFields}`, { method: 'POST', ...upload })
+  }
+
   return {
     findDataFile: () => find(DATA_FILE),
 
@@ -77,13 +85,10 @@ export function createDrive(endpoints: GoogleEndpoints, getToken: (refresh?: boo
       }
     },
 
-    async createDataFile(content: string, appProperties: Record<string, string>) {
-      const folderType = 'application/vnd.google-apps.folder'
-      const folder = await find(DATA_FOLDER, folderType)
-        ?? await json<DriveFile>(`${endpoints.api}/files?fields=id`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: DATA_FOLDER, mimeType: folderType }) })
-      const upload = await multipart({ name: DATA_FILE, parents: [folder.id], mimeType: DATA_TYPE, appProperties }, content)
-      return json<DriveFile>(`${endpoints.upload}/files?uploadType=multipart&fields=${fileFields}`, { method: 'POST', ...upload })
-    },
+    createDataFile: (content: string, appProperties: Record<string, string>) => create(DATA_FILE, content, appProperties),
+
+    /** One run of activity-log lines, written once and never changed. */
+    createAuditFile: (firstId: number, lastId: number, content: string) => create(`aicom-audit-${firstId}-${lastId}.json`, content, {}),
 
     async updateDataFile(id: string, content: string, appProperties: Record<string, string>) {
       const upload = await multipart({ mimeType: DATA_TYPE, appProperties }, content)

@@ -26,14 +26,14 @@ beforeEach(() => {
 const actor = { user: 'cliente@example.com', device: 'PC' }
 
 /** One installed PC signed in to the shared Google account. */
-function pc(name: string, endpoints = google.endpoints) {
+function pc(name: string, endpoints = google.endpoints, auditChunkRows?: number) {
   const dir = mkdtempSync(join(tmpdir(), `aicom-${name}-`))
   const refresh = google.grant()
   const db = openDatabase(join(dir, 'data.sqlite'))
   const states: SyncState[] = []
   let replaced = 0
   const drive = createDrive(endpoints, async () => (await refreshTokens(endpoints, { clientId: 'desktop' }, refresh)).accessToken)
-  const sync = createSync({ db, drive, device: { id: `id-${name}`, name }, backupDir: join(dir, 'backups'), onState: (state) => states.push(state), onReplaced: () => { replaced += 1 }, now: () => clock })
+  const sync = createSync({ db, drive, device: { id: `id-${name}`, name }, backupDir: join(dir, 'backups'), onState: (state) => states.push(state), onReplaced: () => { replaced += 1 }, now: () => clock, auditChunkRows })
   return {
     db, sync, states, dir,
     replaced: () => replaced,
@@ -258,4 +258,60 @@ test('the Drive copy is sent compressed, and plain JSON written by older version
   const two = pc('two')
   assert.equal((await two.sync.run()).status, 'synced')
   assert.deepEqual(two.clients(), { C1: { name: 'from an earlier version' } })
+})
+
+const auditFiles = () => [...google.files.values()].filter((file) => file.name.startsWith('aicom-audit-'))
+const auditOf = (db: { listAudit(limit: number, offset: number): { rows: unknown[]; total: number } }) => db.listAudit(500, 0)
+
+test('the activity log is archived once on Drive, and each save only sends the lines after the archive', async () => {
+  const one = pc('one', google.endpoints, 3)
+  for (const name of ['A', 'B', 'C', 'D']) one.edit({ C1: { name } })
+  await one.sync.run()
+  assert.equal(auditFiles().length, 1)
+  assert.deepEqual([driveData().audit.length, driveData().auditArchive.length], [0, 1])
+
+  one.edit({ C1: { name: 'E' } })
+  await one.sync.run()
+  assert.equal(auditFiles().length, 1)
+  assert.deepEqual([driveData().audit.length, driveData().auditArchive.length], [1, 1])
+
+  // A second PC gets the whole log: the archive once, then only the data file.
+  later()
+  const two = pc('two', google.endpoints, 3)
+  assert.equal((await two.sync.run()).status, 'synced')
+  assert.deepEqual(auditOf(two.db), auditOf(one.db))
+  assert.equal(auditOf(two.db).total, 5)
+
+  later()
+  one.edit({ C1: { name: 'F' } })
+  await one.sync.run()
+  google.files.delete(auditFiles()[0].id)
+  later()
+  assert.equal((await two.sync.run()).status, 'synced')
+  assert.deepEqual(auditOf(two.db), auditOf(one.db))
+})
+
+test('restoring a version from before an archive brings back that version of the log', async () => {
+  const one = pc('one', google.endpoints, 3)
+  one.edit({ C1: { name: 'A' } })
+  one.edit({ C1: { name: 'B' } })
+  await one.sync.run()
+  one.edit({ C1: { name: 'C' } })
+  one.edit({ C1: { name: 'D' } })
+  await one.sync.run()
+  assert.equal(one.db.auditChunks().length, 1)
+
+  assert.equal((await one.sync.restoreRevision(dataFile().revisions[0].id)).status, 'synced')
+  assert.deepEqual(one.clients(), { C1: { name: 'B' } })
+  assert.equal(auditOf(one.db).total, 2)
+  assert.deepEqual([one.db.auditChunks().length, driveData().auditArchive.length, driveData().audit.length], [0, 0, 2])
+})
+
+test('a Drive copy opened by hand, without its archived lines, is refused', async () => {
+  const one = pc('one', google.endpoints, 3)
+  for (const name of ['A', 'B', 'C']) one.edit({ C1: { name } })
+  await one.sync.run()
+  const other = pc('other')
+  assert.throws(() => other.db.importData(driveData()), /incomplete Google Drive copy/)
+  assert.equal(other.db.isEmpty(), true)
 })
