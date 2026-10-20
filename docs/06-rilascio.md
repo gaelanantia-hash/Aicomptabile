@@ -106,6 +106,8 @@ Per attivarle:
 | Variabile | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` | Federazione delle identità tra GitHub e Google Cloud (nessuna chiave salvata) |
 | Segreto | `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD` | Certificato di firma |
 
+`scripts/setup-github-release.ps1 -ProjectId <id>` prepara tutto questo per la pubblicazione: bucket, account di servizio `aicom-deploy`, federazione delle identità limitata a questo repository, `updateFeedUrl` locale e le variabili GitHub (con `gh`, oppure le stampa). Restano a mano solo `LICENSE_SERVER_URL`/`LICENSE_PUBLIC_KEY` (servizio licenze, vedi `setup-google-cloud.ps1`) e il certificato di firma.
+
 I flussi non sono mai stati eseguiti: al primo avvio potrebbero servire ritocchi.
 
 ## T62 — Monitoraggio
