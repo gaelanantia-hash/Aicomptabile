@@ -134,7 +134,9 @@ Copia l'URL del servizio in `licenseServerUrl` e la chiave pubblica in `licenseP
 ```sh
 export LICENSE_SERVER_URL=https://aicom-licensing-xxxx.run.app
 export ADMIN_TOKEN=...
-npm run admin -- create "Nome Cliente SARL" --devices 2 --expires 2027-12-31
+npm run admin -- create "Nome Cliente SARL" --devices 2 --emails anne@gmail.com,paul@gmail.com
+npm run admin -- emails <id> --add marie@gmail.com --remove paul@gmail.com
+npm run admin -- create "Nome Cliente SARL" --devices 2 --expires 2027-12-31   # solo con codice
 npm run admin -- list
 npm run admin -- revoke <id>
 npm run admin -- reset-devices <id>     # il cliente ha cambiato PC senza liberare la licenza
@@ -142,6 +144,8 @@ npm run admin -- delete <id>            # cancellazione definitiva (richieste GD
 ```
 
 Il codice (`AICOM-XXXXX-XXXXX-XXXXX-XXXXX`) viene mostrato **una sola volta** alla creazione: nel database resta solo la sua impronta.
+
+**Licenze legate all'account Google (consigliato).** Con `--emails` la licenza si attiva da sola quando il cliente collega quell'account Google in AICOM: il cliente non vede né digita alcun codice, che resta tuo. Il servizio verifica l'ID token firmato da Google (firma, emittente, destinatario = client OAuth desktop in `GOOGLE_CLIENT_IDS`, scadenza, email verificata) e consegna al PC un segreto di rinnovo suo, mai il codice. Un indirizzo appartiene a una sola licenza; ogni PC attivato conta nel limite `--devices`. Togliere un indirizzo con `emails <id> --remove` impedisce nuove attivazioni da quell'account; `revoke` ferma anche i PC già attivati al controllo successivo. Il codice resta utilizzabile come alternativa (per esempio con un account Google diverso).
 
 ## 8. Bucket per gli aggiornamenti
 

@@ -19,6 +19,8 @@ let base = ''
 before(async () => {
   const app = createApp({
     store: createMemoryStore(), privateKey: loadPrivateKey(keys.privateKey), adminToken, graceDays: 14, limits: { general: 1000, activation: 1000 }, now: () => clock, log: (entry) => logged.push(entry),
+    // Stand-in for Google: "google:<e-mail>" is a valid ID token for that address, anything else is not.
+    verifyGoogleToken: async (idToken) => idToken.startsWith('google:') ? { email: idToken.slice(7).toLowerCase(), sub: 'sub' } : null,
     releases: { win32: { version: '1.2.0', url: 'https://example.com/AICOM-Setup-1.2.0.exe', notes: 'Corrections' } },
   })
   server = app.listen(0, '127.0.0.1')
@@ -33,6 +35,7 @@ async function post(path: string, body: unknown, token?: string) {
 }
 const create = async (body: object) => (await post('/v1/admin/licenses', body, adminToken)).body as unknown as { code: string; id: string }
 const activate = (code: string, deviceId: string) => post('/v1/licenses/activate', { code, deviceId, deviceName: `PC ${deviceId}`, appVersion: '1.0.0' })
+const activateAccount = (email: string, deviceId: string) => post('/v1/licenses/activate-account', { idToken: `google:${email}`, deviceId, deviceName: `PC ${deviceId}`, appVersion: '1.0.0' })
 
 test('licence codes are readable, unique and stored only as a hash', () => {
   const code = generateCode()
@@ -151,4 +154,60 @@ test('the health check answers on /health (Cloud Run reserves /healthz) and on /
     const response = await fetch(`${base}${path}`)
     assert.deepEqual([response.status, await response.text()], [200, 'ok'])
   }
+})
+
+test('a Google account on a licence activates it without the code, and renews with its own secret', async () => {
+  const { id } = await create({ customer: 'Par compte', maxDevices: 2, emails: 'Anne@gmail.com, paul@gmail.com' })
+  const first = await activateAccount('anne@gmail.com', 'pc-1')
+  assert.equal(first.status, 200)
+  assert.equal(JSON.stringify(first.body).includes('AICOM-'), false)
+  assert.deepEqual([verifyToken(first.body.token, keys.publicKey)!.customer, first.body.email, String(first.body.renewal).split('.')[0]], ['Par compte', 'anne@gmail.com', id])
+
+  clock = new Date('2026-10-05T10:00:00Z')
+  const renewed = await post('/v1/licenses/check', { renewal: first.body.renewal, deviceId: 'pc-1' })
+  assert.equal(verifyToken(renewed.body.token, keys.publicKey)!.validUntil, '2026-10-19T10:00:00.000Z')
+  clock = new Date('2026-10-01T10:00:00Z')
+
+  // The secret belongs to that PC: another PC, or a guessed secret, gets nothing.
+  assert.equal((await post('/v1/licenses/check', { renewal: first.body.renewal, deviceId: 'pc-2' })).status, 404)
+  assert.equal((await post('/v1/licenses/check', { renewal: `${id}.guessed-secret`, deviceId: 'pc-1' })).status, 404)
+  assert.equal((await post('/v1/licenses/check', { renewal: 'nonsense', deviceId: 'pc-1' })).status, 400)
+})
+
+test('accounts not on any licence, or tokens Google did not issue, are refused', async () => {
+  assert.deepEqual(await activateAccount('stranger@gmail.com', 'pc-1').then((result) => [result.status, result.body.error]), [404, 'not_registered'])
+  assert.deepEqual(await post('/v1/licenses/activate-account', { idToken: 'forged', deviceId: 'pc-1' }).then((result) => [result.status, result.body.error]), [401, 'invalid'])
+  assert.equal((await post('/v1/licenses/activate-account', { idToken: 'google:anne@gmail.com' })).status, 401)
+})
+
+test('account activations count against the PC limit, follow revocation, and free their seat on deactivation', async () => {
+  const { id } = await create({ customer: 'Un poste', maxDevices: 1, emails: ['solo@gmail.com'] })
+  const first = await activateAccount('solo@gmail.com', 'pc-1')
+  assert.equal(first.status, 200)
+  // Signing in again on the same PC (a reinstall) reuses its seat and replaces its secret.
+  const again = await activateAccount('solo@gmail.com', 'pc-1')
+  assert.equal(again.status, 200)
+  assert.equal((await post('/v1/licenses/check', { renewal: first.body.renewal, deviceId: 'pc-1' })).status, 404)
+  assert.deepEqual(await activateAccount('solo@gmail.com', 'pc-2').then((result) => [result.status, result.body.error]), [403, 'device_limit'])
+
+  await post('/v1/licenses/deactivate', { renewal: `${id}.wrong`, deviceId: 'pc-1' })
+  assert.deepEqual(await activateAccount('solo@gmail.com', 'pc-2').then((result) => result.status), 403)
+  await post('/v1/licenses/deactivate', { renewal: again.body.renewal, deviceId: 'pc-1' })
+  assert.equal((await activateAccount('solo@gmail.com', 'pc-2')).status, 200)
+
+  await post(`/v1/admin/licenses/${id}/revoke`, {}, adminToken)
+  assert.deepEqual(await activateAccount('solo@gmail.com', 'pc-2').then((result) => [result.status, result.body.error]), [403, 'revoked'])
+})
+
+test('the admin manages which accounts open a licence; an address belongs to one licence only', async () => {
+  const one = await create({ customer: 'Société A', maxDevices: 3, emails: 'a1@gmail.com' })
+  assert.deepEqual(await post('/v1/admin/licenses', { customer: 'Société B', maxDevices: 1, emails: 'A1@gmail.com' }, adminToken).then((result) => [result.status, result.body.error]), [409, 'email_in_use'])
+  assert.equal((await post('/v1/admin/licenses', { customer: 'Société C', maxDevices: 1, emails: 'not-an-email' }, adminToken)).status, 400)
+
+  const changed = await post(`/v1/admin/licenses/${one.id}/emails`, { add: 'a2@gmail.com,a3@gmail.com', remove: 'a1@gmail.com' }, adminToken)
+  assert.deepEqual(changed.body.emails, ['a2@gmail.com', 'a3@gmail.com'])
+  assert.deepEqual(await activateAccount('a1@gmail.com', 'pc-1').then((result) => result.body.error), 'not_registered')
+  assert.equal((await activateAccount('a3@gmail.com', 'pc-1')).status, 200)
+  assert.equal((await post('/v1/admin/licenses/unknown-id/emails', { add: 'z@gmail.com' }, adminToken)).status, 404)
+  assert.equal((await post(`/v1/admin/licenses/${one.id}/emails`, { add: 'a2@gmail.com' })).status, 404)
 })

@@ -14,6 +14,7 @@ export function createFirestoreStore(collectionName = 'licenses'): Store {
       if (next) transaction.set(reference, next)
       return next
     }),
+    findByEmail: async (email) => (await collection.where('emails', 'array-contains', email).limit(1).get()).docs[0]?.data() as License | undefined,
     list: async () => (await collection.orderBy('createdAt', 'desc').get()).docs.map((document) => document.data() as License),
     remove: async (id) => {
       const reference = collection.doc(id)

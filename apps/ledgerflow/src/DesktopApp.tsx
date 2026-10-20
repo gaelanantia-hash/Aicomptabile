@@ -58,6 +58,7 @@ const licenseMessages: Record<LicenseReason, [string, string]> = {
   device_limit: ['Cette licence est déjà utilisée sur le nombre maximal de PC.', 'This licence is already in use on its maximum number of PCs.'],
   grace_expired: ['La licence n’a pas pu être vérifiée depuis trop longtemps. Connectez-vous à Internet.', 'The licence could not be verified for too long. Connect to the Internet.'],
   unreachable: ['Service de licences injoignable. Vérifiez votre connexion et réessayez.', 'Licence service unreachable. Check your connection and try again.'],
+  not_registered: ['Aucune licence AICOM n’est associée à ce compte Google.', 'No AICOM licence is linked to this Google account.'],
 }
 
 function licenceLabel(license: DesktopState['license'], tr: Translate) {
@@ -342,8 +343,13 @@ function Setup({ api, state, store, locale, setLocale, tr, refresh, loadStore, o
   const [account, setAccount] = useState({ name: '', username: '', password: '', confirm: '' })
   const [recoveryCode, setRecoveryCode] = useState('')
   const connected = Boolean(state.account || state.localOnly)
-  const step = !welcomed ? 'welcome' : !state.license.valid ? 'license' : !connected ? 'google' : !store ? 'company' : !state.auth.hasUsers ? 'user' : 'summary'
-  const steps = ['license', 'google', 'company', 'user']
+  // With a licence service, licences belong to Google accounts and activate on connection: the Google step comes first.
+  const accountFirst = state.licenseConfigured
+  const step = !welcomed ? 'welcome'
+    : accountFirst ? !connected ? 'google' : !state.license.valid ? 'license' : !store ? 'company' : !state.auth.hasUsers ? 'user' : 'summary'
+    : !state.license.valid ? 'license' : !connected ? 'google' : !store ? 'company' : !state.auth.hasUsers ? 'user' : 'summary'
+  const steps = accountFirst ? ['google', 'license', 'company', 'user'] : ['license', 'google', 'company', 'user']
+  const stepNumber = (id: string) => steps.indexOf(id) + 1
   const position = step === 'summary' ? steps.length : steps.indexOf(step)
 
   const createAccount = () => run(async () => {
@@ -375,6 +381,11 @@ function Setup({ api, state, store, locale, setLocale, tr, refresh, loadStore, o
     if (!result.valid) setMessage(tr(...licenseMessages[result.reason ?? 'invalid']))
     await refresh()
   })
+  const retryAccount = () => run(async () => {
+    const result = await api.activateLicenseByAccount()
+    if (!result.valid && result.reason !== 'not_registered') setMessage(tr(...licenseMessages[result.reason ?? 'invalid']))
+    await refresh()
+  })
   const connect = () => run(async () => {
     await api.connectGoogle()
     await refresh()
@@ -403,22 +414,28 @@ function Setup({ api, state, store, locale, setLocale, tr, refresh, loadStore, o
 
           {step === 'license' && <>
             <div className="portal-icon"><KeyRound size={21} /></div>
-            <div className="portal-eyebrow">{tr('ÉTAPE 1 · LICENCE', 'STEP 1 · LICENCE')}</div>
+            <div className="portal-eyebrow">{tr(`ÉTAPE ${stepNumber('license')} · LICENCE`, `STEP ${stepNumber('license')} · LICENCE`)}</div>
             <h1>{tr('Activez votre licence', 'Activate your licence')}</h1>
-            <p className="portal-description">{tr('Saisissez le code reçu à l’achat. Il sera associé à ce PC.', 'Enter the code you received on purchase. It will be linked to this PC.')}</p>
+            {accountFirst && state.account ? <>
+              <p className="portal-error" role="alert">{state.license.reason === 'not_registered' || state.license.reason === 'missing'
+                ? tr(`Aucune licence AICOM n’est associée au compte ${state.account.email}. Demandez à votre fournisseur d’ajouter cette adresse, puis réessayez.`, `No AICOM licence is linked to ${state.account.email}. Ask your provider to add this address, then try again.`)
+                : tr(...licenseMessages[state.license.reason ?? 'invalid'])}</p>
+              <div className="portal-form"><button className="portal-submit" type="button" disabled={busy} onClick={() => { void retryAccount() }}>{busy && <LoaderCircle className="spin-icon" size={16} />}{tr('Réessayer', 'Try again')}</button></div>
+              <p className="portal-description">{tr('Vous avez reçu un code de licence ? Vous pouvez aussi le saisir ici.', 'Received a licence code? You can also enter it here.')}</p>
+            </> : <p className="portal-description">{tr('Saisissez le code reçu à l’achat. Il sera associé à ce PC.', 'Enter the code you received on purchase. It will be linked to this PC.')}</p>}
             {!state.licenseConfigured && <p className="portal-error" role="alert">{state.license.trial ? tr(`La période d’essai s’est terminée le ${state.license.expires}. Contactez-nous pour obtenir la version complète ; vos données sont conservées sur ce PC.`, `The trial period ended on ${state.license.expires}. Contact us for the full version; your data are kept on this PC.`) : tr('Cette installation n’est pas reliée au service de licences. Contactez le support.', 'This installation is not linked to the licence service. Contact support.')}</p>}
             <form className="portal-form" onSubmit={(event) => { event.preventDefault(); void activate() }}>
               <label>{tr('Code de licence', 'Licence code')}<input className="dk-code" value={code} onChange={(event) => setCode(event.target.value)} placeholder="AICOM-XXXXX-XXXXX-XXXXX-XXXXX" autoFocus spellCheck={false} /></label>
-              {(message || (state.license.reason && state.license.reason !== 'missing' && !code)) && <p className="portal-error" role="alert">{message || tr(...licenseMessages[state.license.reason!])}</p>}
+              {(message || (!(accountFirst && state.account) && state.license.reason && state.license.reason !== 'missing' && !code)) && <p className="portal-error" role="alert">{message || tr(...licenseMessages[state.license.reason!])}</p>}
               <button className="portal-submit" type="submit" disabled={busy || !code.trim()}>{busy && <LoaderCircle className="spin-icon" size={16} />}{tr('Activer', 'Activate')}</button>
             </form>
           </>}
 
           {step === 'google' && <>
             <div className="portal-icon"><Cloud size={21} /></div>
-            <div className="portal-eyebrow">{tr('ÉTAPE 2 · COMPTE GOOGLE', 'STEP 2 · GOOGLE ACCOUNT')}</div>
+            <div className="portal-eyebrow">{tr(`ÉTAPE ${stepNumber('google')} · COMPTE GOOGLE`, `STEP ${stepNumber('google')} · GOOGLE ACCOUNT`)}</div>
             <h1>{tr('Connectez votre compte Google', 'Connect your Google account')}</h1>
-            <p className="portal-description">{tr('AICOM enregistre vos données dans votre Google Drive. La connexion s’ouvre dans votre navigateur.', 'AICOM saves your data in your Google Drive. Sign-in opens in your browser.')}</p>
+            <p className="portal-description">{tr('AICOM enregistre vos données dans votre Google Drive. La connexion s’ouvre dans votre navigateur.', 'AICOM saves your data in your Google Drive. Sign-in opens in your browser.')}{accountFirst && tr(' Votre licence est liée à votre adresse Google : elle s’active toute seule.', ' Your licence is linked to your Google address: it activates by itself.')}</p>
             <ul className="dk-points">
               <li><Check size={13} />{tr('AICOM n’accède qu’aux fichiers qu’il crée lui-même, pas au reste de votre Drive.', 'AICOM only accesses the files it creates itself, not the rest of your Drive.')}</li>
               <li><Check size={13} />{tr('Votre mot de passe Google n’est jamais communiqué à AICOM.', 'Your Google password is never shared with AICOM.')}</li>

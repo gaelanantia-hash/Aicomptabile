@@ -99,3 +99,6 @@ jobs:
           secrets: |
             LICENSE_PRIVATE_KEY=aicom-license-private-key:latest
             ADMIN_TOKEN=aicom-admin-token:latest
+          # Licences by Google account: only ID tokens issued to the desktop OAuth client are accepted.
+          env_vars: |
+            GOOGLE_CLIENT_IDS=${{ vars.GOOGLE_OAUTH_CLIENT_ID }}

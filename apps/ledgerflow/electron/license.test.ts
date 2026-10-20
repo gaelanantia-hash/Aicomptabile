@@ -23,12 +23,17 @@ function token(overrides: Partial<Activation> = {}, key = keys.privateKey) {
 // Minimal licence service: answers with whatever the test sets.
 let reply: { status: number; body: object } = { status: 200, body: {} }
 let reachable = true
+let received: { path: string; body: Record<string, unknown> } | undefined
 const server = createServer((request, response) => {
   if (!reachable) {
     request.socket.destroy()
     return
   }
-  response.writeHead(reply.status, { 'Content-Type': 'application/json' }).end(JSON.stringify(reply.body))
+  const chunks: Buffer[] = []
+  request.on('data', (chunk: Buffer) => chunks.push(chunk)).on('end', () => {
+    received = { path: request.url ?? '', body: JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as Record<string, unknown> }
+    response.writeHead(reply.status, { 'Content-Type': 'application/json' }).end(JSON.stringify(reply.body))
+  })
 })
 let serverUrl = ''
 before(async () => {
@@ -137,4 +142,33 @@ test('setting the system clock back does not extend a trial', () => {
   const options = { serverUrl: '', publicKey: '', device, appVersion: '1.0.0', devMode: false, file: join(tmpdir(), 'aicom-none.json'), trialUntil: '2026-10-31', clockFile }
   assert.equal(createLicenseClient({ ...options, now: () => Date.parse('2026-11-02T08:00:00') }).state().valid, false)
   assert.equal(createLicenseClient({ ...options, now: () => Date.parse('2026-10-15T08:00:00') }).state().reason, 'expired')
+})
+
+test('a licence activated through the Google account renews with its secret, never with a code', async () => {
+  const license = client()
+  reply = { status: 200, body: { token: token(), renewal: 'licence-id.secret-for-this-pc', email: 'anne@gmail.com', customer: 'Maison Lumière SAS' } }
+  const state = await license.activateAccount('google-id-token')
+  assert.deepEqual([state.valid, state.email, state.customer], [true, 'anne@gmail.com', 'Maison Lumière SAS'])
+  assert.deepEqual([received?.path, received?.body.idToken, received?.body.deviceId, 'code' in (received?.body ?? {})], ['/v1/licenses/activate-account', 'google-id-token', device.id, false])
+  assert.equal(license.hasCode(), false)
+
+  reply = { status: 200, body: { token: token() } }
+  assert.equal((await license.check()).valid, true)
+  assert.deepEqual([received?.path, received?.body.renewal, received?.body.code], ['/v1/licenses/check', 'licence-id.secret-for-this-pc', undefined])
+
+  reply = { status: 403, body: { error: 'revoked' } }
+  assert.equal((await license.check()).reason, 'revoked')
+  assert.equal(license.state().valid, false)
+})
+
+test('an account on no licence is told so; a code activation is remembered as such', async () => {
+  reply = { status: 404, body: { error: 'not_registered' } }
+  assert.deepEqual(await client().activateAccount('google-id-token'), { valid: false, reason: 'not_registered' })
+
+  const license = client()
+  reply = { status: 200, body: { token: token() } }
+  await license.activate('aicom-aaaaa-bbbbb')
+  assert.equal(license.hasCode(), true)
+  await license.check()
+  assert.deepEqual([received?.body.code, received?.body.renewal], ['AICOM-AAAAA-BBBBB', undefined])
 })

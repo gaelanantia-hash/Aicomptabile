@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createApp, type Release } from './app.ts'
+import { createGoogleVerifier } from './googleToken.ts'
 import { createFileStore, type Store } from './store.ts'
 import { loadPrivateKey } from './token.ts'
 
@@ -21,6 +22,8 @@ const app = createApp({
   adminToken: process.env.ADMIN_TOKEN,
   releases,
   graceDays: Number(process.env.GRACE_DAYS || 14),
+  // OAuth client IDs of the desktop app, comma-separated: activation by Google account accepts ID tokens issued to them only.
+  verifyGoogleToken: process.env.GOOGLE_CLIENT_IDS ? createGoogleVerifier({ audiences: process.env.GOOGLE_CLIENT_IDS.split(',').map((id) => id.trim()).filter(Boolean) }) : undefined,
 })
 
 const port = Number(process.env.PORT || 8090)

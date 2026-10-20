@@ -95,8 +95,12 @@ $projectNumber = & gcloud projects describe $ProjectId --format='value(projectNu
 Invoke-Gcloud projects add-iam-policy-binding $ProjectId --member="serviceAccount:$projectNumber-compute@developer.gserviceaccount.com" --role=roles/run.builder --condition=None --quiet | Out-Null
 
 Step 'Deploying the licensing service to Cloud Run (a few minutes)'
+# The desktop OAuth client ID lets the service accept Google ID tokens issued to AICOM only (licences by Google account).
+$clientId = if (Test-Path $configFile) { [string](Get-Content $configFile -Raw | ConvertFrom-Json).googleClientId } else { '' }
+$envVars = if ($clientId) { @('--update-env-vars', "GOOGLE_CLIENT_IDS=$clientId") } else { @() }
+if (-not $clientId) { Write-Host 'No googleClientId in desktop.config.json yet: licences work with codes only until this script runs again.' -ForegroundColor Yellow }
 Invoke-Gcloud run deploy aicom-licensing --source $licensing --region $Region --allow-unauthenticated --service-account $serviceAccount `
-  --set-secrets 'LICENSE_PRIVATE_KEY=aicom-license-private-key:latest,ADMIN_TOKEN=aicom-admin-token:latest' --quiet
+  --set-secrets 'LICENSE_PRIVATE_KEY=aicom-license-private-key:latest,ADMIN_TOKEN=aicom-admin-token:latest' @envVars --quiet
 $serviceUrl = & gcloud run services describe aicom-licensing --region $Region --format='value(status.url)'
 # /health, not /healthz: Cloud Run reserves paths ending in "z".
 $health = Invoke-WebRequest "$serviceUrl/health" -UseBasicParsing

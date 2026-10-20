@@ -130,6 +130,27 @@ function currentState(): DesktopState {
   }
 }
 
+/**
+ * Licences granted to Google accounts: once an account is connected, its ID token (fresh from Google) activates the licence
+ * of that address, with nothing to type. Skipped on PCs activated with a code, and when the licence is already valid.
+ */
+async function activateLicenseByAccount(idToken?: string) {
+  if (!license.configured() || license.state().valid || license.hasCode()) return license.state()
+  let token = idToken
+  if (!token) {
+    const stored = vault.load()
+    if (!stored) return license.state()
+    try {
+      token = (await refreshTokens(config.endpoints, oauthClient(), stored.refreshToken)).idToken
+    } catch {
+      return { ...license.state(), reason: 'unreachable' as const }
+    }
+  }
+  const next = token ? await license.activateAccount(token) : license.state()
+  send('license', next)
+  return next
+}
+
 async function connectGoogle(): Promise<DesktopState> {
   if (!oauthClient().clientId) throw new Error('Google sign-in is not configured in this build.')
   pendingSignIn?.close()
@@ -146,6 +167,7 @@ async function connectGoogle(): Promise<DesktopState> {
     const localData = session && !session.account && !session.db.isEmpty() ? session.db.exportData(device.name) : undefined
     tokens = issued
     vault.save({ refreshToken: issued.refreshToken, account })
+    await activateLicenseByAccount(issued.idToken)
     settings.localOnly = false
     saveSettings()
     openSession(account)
@@ -259,6 +281,7 @@ async function unlockDriveCopy(username: string, kind: 'password' | 'recovery', 
 const handlers: Record<string, (...args: never[]) => unknown> = {
   getState: () => currentState(),
   activateLicense: (code: string) => license.activate(String(code)),
+  activateLicenseByAccount: () => activateLicenseByAccount(),
   deactivateLicense: async () => {
     await license.deactivate()
     send('license', license.state())
@@ -424,7 +447,8 @@ else {
     setupUpdater()
     createWindow()
     void session?.sync?.run()
-    void license.check().then((state) => send('license', state))
+    // A PC activated through its account renews like any other; one not yet activated tries the connected account first.
+    void license.check().then((state) => state.valid || license.hasCode() || !license.configured() ? send('license', state) : activateLicenseByAccount().then((next) => send('license', next)))
     setInterval(() => { void license.check().then((state) => send('license', state)) }, 12 * 60 * 60_000)
     setTimeout(() => { void checkUpdate() }, 8000)
   })

@@ -4,8 +4,10 @@ export type Account = { sub: string; email: string }
 /** `unlock`: the Drive copy is encrypted and this PC does not hold the key yet; signing in opens it. */
 export type SyncStatus = 'disconnected' | 'synced' | 'pending' | 'syncing' | 'offline' | 'conflict' | 'locked' | 'reauth' | 'unlock' | 'error'
 export type SyncState = { status: SyncStatus; lastSyncAt?: string; detail?: string; lockedBy?: string }
-export type LicenseReason = 'missing' | 'invalid' | 'expired' | 'revoked' | 'device_limit' | 'grace_expired' | 'unreachable'
-export type LicenseState = { valid: boolean; customer?: string; expires?: string | null; validUntil?: string; reason?: LicenseReason; dev?: boolean; trial?: boolean }
+/** `not_registered`: the signed-in Google account is on no licence. */
+export type LicenseReason = 'missing' | 'invalid' | 'expired' | 'revoked' | 'device_limit' | 'grace_expired' | 'unreachable' | 'not_registered'
+/** `email`: the Google account the licence was activated through, when it was not activated with a code. */
+export type LicenseState = { valid: boolean; customer?: string; expires?: string | null; validUntil?: string; reason?: LicenseReason; dev?: boolean; trial?: boolean; email?: string }
 /** `metered`: the download waits for the customer because the connection is paid by volume; `size` is the most it will transfer, in bytes. */
 export type UpdateState = { status: 'idle' | 'available' | 'downloading' | 'ready' | 'error'; version?: string; notes?: string; url?: string; metered?: boolean; size?: number }
 
@@ -42,6 +44,8 @@ export type Revision = { id: string; modifiedTime: string; size?: string }
 export type DesktopApi = {
   getState(): Promise<DesktopState>
   activateLicense(code: string): Promise<LicenseState>
+  /** Tries again to activate the licence through the connected Google account (after the provider added the address). */
+  activateLicenseByAccount(): Promise<LicenseState>
   deactivateLicense(): Promise<DesktopState>
   connectGoogle(): Promise<DesktopState>
   cancelConnect(): Promise<void>
