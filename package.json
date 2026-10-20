@@ -1,0 +1,11 @@
+{
+  "name": "aicom",
+  "private": true,
+  "description": "Shortcuts to run the two apps from the repository root; each app keeps its own package.json and dependencies.",
+  "scripts": {
+    "desktop": "npm --prefix apps/ledgerflow run desktop",
+    "dist": "npm --prefix apps/ledgerflow run dist",
+    "test": "npm --prefix apps/ledgerflow test && npm --prefix apps/licensing test",
+    "admin": "npm --prefix apps/licensing run admin --"
+  }
+}
