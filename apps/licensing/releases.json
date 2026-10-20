@@ -1,7 +1,7 @@
 {
   "win32": {
-    "version": "0.2.7",
+    "version": "0.2.8",
     "url": "",
-    "notes": "Un bouton en forme d’œil permet d’afficher le mot de passe saisi. Vos données sur Google Drive sont désormais chiffrées : seul un identifiant AICOM de votre entreprise peut les ouvrir. Sur un nouveau PC, connectez-vous avec votre identifiant et votre mot de passe AICOM. Démarrage plus rapide, polices intégrées (aucun téléchargement au lancement). Synchronisation Google Drive beaucoup plus légère : seules les modifications récentes sont envoyées, l’historique est archivé une seule fois. Sur une connexion facturée au volume (téléphone), les mises à jour attendent votre accord. Installateur plus petit. Plan comptable SYSCOHADA et pays d’Afrique centrale, états financiers, clôture de l’exercice, écritures définitives (contre-passation), sauvegarde automatique quotidienne."
+    "notes": "Votre licence est liée à votre compte Google : elle s’active toute seule quand vous le connectez, sans code à saisir. Un bouton en forme d’œil permet d’afficher le mot de passe saisi. Vos données sur Google Drive sont désormais chiffrées : seul un identifiant AICOM de votre entreprise peut les ouvrir. Sur un nouveau PC, connectez-vous avec votre identifiant et votre mot de passe AICOM. Démarrage plus rapide, polices intégrées (aucun téléchargement au lancement). Synchronisation Google Drive beaucoup plus légère : seules les modifications récentes sont envoyées, l’historique est archivé une seule fois. Sur une connexion facturée au volume (téléphone), les mises à jour attendent votre accord. Installateur plus petit. Plan comptable SYSCOHADA et pays d’Afrique centrale, états financiers, clôture de l’exercice, écritures définitives (contre-passation), sauvegarde automatique quotidienne."
   }
 }
