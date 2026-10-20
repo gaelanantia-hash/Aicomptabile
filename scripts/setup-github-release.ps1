@@ -105,8 +105,10 @@ if (Test-Gcloud iam service-accounts describe $licensingAccount) {
   foreach ($role in 'roles/run.admin', 'roles/cloudbuild.builds.editor', 'roles/artifactregistry.writer', 'roles/serviceusage.serviceUsageConsumer') {
     Invoke-GcloudRetry projects add-iam-policy-binding $ProjectId --member="serviceAccount:$serviceAccount" --role=$role --condition=None --quiet
   }
-  # Sources are uploaded to the bucket Cloud Run created at the first deploy: storage rights on that bucket only.
+  # Sources are uploaded to the bucket Cloud Run created at the first deploy: storage rights on that bucket only,
+  # plus listing the project's buckets (names only), which gcloud does to find it.
   Invoke-GcloudRetry storage buckets add-iam-policy-binding "gs://run-sources-$ProjectId-$Region" --member="serviceAccount:$serviceAccount" --role=roles/storage.admin
+  Invoke-GcloudRetry projects add-iam-policy-binding $ProjectId --member="serviceAccount:$serviceAccount" --role=roles/storage.bucketViewer --condition=None --quiet
   # Acting as the service's own account, and as the account Cloud Build runs under.
   foreach ($runAs in $licensingAccount, "$projectNumber-compute@developer.gserviceaccount.com") {
     Invoke-GcloudRetry iam service-accounts add-iam-policy-binding $runAs --member="serviceAccount:$serviceAccount" --role=roles/iam.serviceAccountUser --quiet
