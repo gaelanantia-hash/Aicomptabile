@@ -63,7 +63,17 @@ Invoke-Gcloud projects add-iam-policy-binding $ProjectId --member="serviceAccoun
 Step 'Licence signing key and admin token'
 $publicKey = $null
 if (Test-Gcloud secrets describe aicom-license-private-key) {
-  Write-Host 'Secrets already exist: keeping them. The public key must already be in desktop.config.json.'
+  Write-Host 'Secrets already exist: keeping them.'
+  # A run interrupted after this step never wrote the public key: derive it again from the stored private key.
+  $existing = if (Test-Path $configFile) { Get-Content $configFile -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
+  if (-not $existing.licensePublicKey) {
+    $privateKey = (& gcloud secrets versions access latest --secret=aicom-license-private-key) -join ''
+    $publicKey = $privateKey | & node -e "let k='';process.stdin.on('data',(d)=>k+=d).on('end',()=>{const c=require('node:crypto');console.log(c.createPublicKey(c.createPrivateKey({key:Buffer.from(k.trim(),'base64'),format:'der',type:'pkcs8'})).export({format:'der',type:'spki'}).toString('base64'))})"
+    if ($LASTEXITCODE -or -not $publicKey) { throw 'Could not derive the public key from the stored private key.' }
+    $publicKey = $publicKey.Trim()
+    Remove-Variable privateKey
+  }
+  if (-not (Test-Path (Join-Path $licensing '.env'))) { $adminToken = (& gcloud secrets versions access latest --secret=aicom-admin-token) -join '' }
 } else {
   Push-Location $licensing
   try {
@@ -79,12 +89,18 @@ if (Test-Gcloud secrets describe aicom-license-private-key) {
   Write-Host '  gcloud secrets versions access latest --secret=aicom-license-private-key'
 }
 
+Step 'Build permissions'
+# Projects created since 2024 build with the Compute Engine default account, which needs this role to read the uploaded sources.
+$projectNumber = & gcloud projects describe $ProjectId --format='value(projectNumber)'
+Invoke-Gcloud projects add-iam-policy-binding $ProjectId --member="serviceAccount:$projectNumber-compute@developer.gserviceaccount.com" --role=roles/run.builder --condition=None --quiet | Out-Null
+
 Step 'Deploying the licensing service to Cloud Run (a few minutes)'
 Invoke-Gcloud run deploy aicom-licensing --source $licensing --region $Region --allow-unauthenticated --service-account $serviceAccount `
   --set-secrets 'LICENSE_PRIVATE_KEY=aicom-license-private-key:latest,ADMIN_TOKEN=aicom-admin-token:latest' --quiet
 $serviceUrl = & gcloud run services describe aicom-licensing --region $Region --format='value(status.url)'
-$health = Invoke-WebRequest "$serviceUrl/healthz" -UseBasicParsing
-if ($health.Content -ne 'ok') { throw "The service did not answer its health check at $serviceUrl/healthz" }
+# /health, not /healthz: Cloud Run reserves paths ending in "z".
+$health = Invoke-WebRequest "$serviceUrl/health" -UseBasicParsing
+if ($health.Content -ne 'ok') { throw "The service did not answer its health check at $serviceUrl/health" }
 Write-Host "Service is up: $serviceUrl"
 
 Step 'Bucket for installers and updates'

@@ -145,3 +145,10 @@ test('the file store survives a restart', async () => {
   await createFileStore(file).create(license)
   assert.deepEqual(await createFileStore(file).get('abc'), license)
 })
+
+test('the health check answers on /health (Cloud Run reserves /healthz) and on /healthz', async () => {
+  for (const path of ['/health', '/healthz']) {
+    const response = await fetch(`${base}${path}`)
+    assert.deepEqual([response.status, await response.text()], [200, 'ok'])
+  }
+})

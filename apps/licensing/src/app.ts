@@ -84,7 +84,8 @@ export function createApp({ store, privateKey, adminToken, releases = {}, graceD
     response.json({ token: issue(license, deviceId), customer: license.customer, expires: license.expires })
   }
 
-  app.get('/healthz', (_request, response) => response.status(200).send('ok'))
+  // Cloud Run reserves paths ending in "z" (its front end answers /healthz itself), so monitoring there uses /health.
+  app.get(['/health', '/healthz'], (_request, response) => response.status(200).send('ok'))
 
   app.post('/v1/licenses/activate', (request, response, next) => { grant(request, response, true).catch(next) })
   app.post('/v1/licenses/check', (request, response, next) => { grant(request, response, false).catch(next) })

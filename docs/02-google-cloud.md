@@ -154,7 +154,7 @@ gcloud storage buckets add-iam-policy-binding gs://PROGETTO-aicom-releases --mem
 
 ## 9. Monitoraggio (T62)
 
-- **Disponibilità**: *Monitoring → Controlli di uptime* su `https://…run.app/healthz`, con avviso via e-mail.
+- **Disponibilità**: *Monitoring → Controlli di uptime* su `https://…run.app/health` (non `/healthz`: Cloud Run riserva i percorsi che finiscono con «z»), con avviso via e-mail.
 - **Errori**: il servizio scrive log JSON con `severity: ERROR`. Crea un avviso basato sui log con filtro `resource.type="cloud_run_revision" severity>=ERROR`. I rapporti d'errore inviati dalle app hanno `type: client_error`.
 - **Costi**: il budget del punto 1.
 - **Tempi di risposta**: grafici predefiniti di Cloud Run (latenza, richieste, istanze).

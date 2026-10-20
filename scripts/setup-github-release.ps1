@@ -98,6 +98,21 @@ $principal = "principalSet://iam.googleapis.com/projects/$projectNumber/location
 Invoke-GcloudRetry iam service-accounts add-iam-policy-binding $serviceAccount --role=roles/iam.workloadIdentityUser --member=$principal --quiet
 $providerName = "projects/$projectNumber/locations/global/workloadIdentityPools/$pool/providers/$provider"
 
+# Once the licensing service exists (scripts/setup-google-cloud.ps1), the workflow also redeploys it at each release.
+$licensingAccount = "aicom-licensing@$ProjectId.iam.gserviceaccount.com"
+if (Test-Gcloud iam service-accounts describe $licensingAccount) {
+  Step 'Permissions to redeploy the licensing service'
+  foreach ($role in 'roles/run.admin', 'roles/cloudbuild.builds.editor', 'roles/artifactregistry.writer', 'roles/serviceusage.serviceUsageConsumer') {
+    Invoke-GcloudRetry projects add-iam-policy-binding $ProjectId --member="serviceAccount:$serviceAccount" --role=$role --condition=None --quiet
+  }
+  # Sources are uploaded to the bucket Cloud Run created at the first deploy: storage rights on that bucket only.
+  Invoke-GcloudRetry storage buckets add-iam-policy-binding "gs://run-sources-$ProjectId-$Region" --member="serviceAccount:$serviceAccount" --role=roles/storage.admin
+  # Acting as the service's own account, and as the account Cloud Build runs under.
+  foreach ($runAs in $licensingAccount, "$projectNumber-compute@developer.gserviceaccount.com") {
+    Invoke-GcloudRetry iam service-accounts add-iam-policy-binding $runAs --member="serviceAccount:$serviceAccount" --role=roles/iam.serviceAccountUser --quiet
+  }
+}
+
 Step 'Local desktop.config.json'
 $config = if (Test-Path $configFile) { Get-Content $configFile -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
 # Builds made on this PC then update themselves from the same bucket as the published ones.
@@ -112,6 +127,9 @@ $variables = [ordered]@{
   GCP_DEPLOY_SERVICE_ACCOUNT = $serviceAccount
   GOOGLE_OAUTH_CLIENT_ID = [string]$config.googleClientId
   TRIAL_UNTIL = [string]$config.trialUntil
+  # Set: published installers ask for a licence code instead of running as a trial.
+  LICENSE_SERVER_URL = [string]$config.licenseServerUrl
+  LICENSE_PUBLIC_KEY = [string]$config.licensePublicKey
 }
 $clientSecret = [string]$config.googleClientSecret
 
