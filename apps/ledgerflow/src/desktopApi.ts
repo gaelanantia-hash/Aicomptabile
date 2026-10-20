@@ -4,8 +4,8 @@ export type Account = { sub: string; email: string }
 /** `unlock`: the Drive copy is encrypted and this PC does not hold the key yet; signing in opens it. */
 export type SyncStatus = 'disconnected' | 'synced' | 'pending' | 'syncing' | 'offline' | 'conflict' | 'locked' | 'reauth' | 'unlock' | 'error'
 export type SyncState = { status: SyncStatus; lastSyncAt?: string; detail?: string; lockedBy?: string }
-/** `not_registered`: the signed-in Google account is on no licence. */
-export type LicenseReason = 'missing' | 'invalid' | 'expired' | 'revoked' | 'device_limit' | 'grace_expired' | 'unreachable' | 'not_registered'
+/** `not_registered`: the signed-in Google account is on no licence. `reauth`: Google access expired, so the account cannot be checked. */
+export type LicenseReason = 'missing' | 'invalid' | 'expired' | 'revoked' | 'device_limit' | 'grace_expired' | 'unreachable' | 'not_registered' | 'reauth'
 /** `email`: the Google account the licence was activated through, when it was not activated with a code. */
 export type LicenseState = { valid: boolean; customer?: string; expires?: string | null; validUntil?: string; reason?: LicenseReason; dev?: boolean; trial?: boolean; email?: string }
 /** `metered`: the download waits for the customer because the connection is paid by volume; `size` is the most it will transfer, in bytes. */

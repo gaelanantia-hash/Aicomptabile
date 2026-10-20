@@ -59,6 +59,7 @@ const licenseMessages: Record<LicenseReason, [string, string]> = {
   grace_expired: ['La licence n’a pas pu être vérifiée depuis trop longtemps. Connectez-vous à Internet.', 'The licence could not be verified for too long. Connect to the Internet.'],
   unreachable: ['Service de licences injoignable. Vérifiez votre connexion et réessayez.', 'Licence service unreachable. Check your connection and try again.'],
   not_registered: ['Aucune licence AICOM n’est associée à ce compte Google.', 'No AICOM licence is linked to this Google account.'],
+  reauth: ['La connexion à Google a expiré. Reconnectez votre compte Google pour vérifier la licence.', 'The Google sign-in expired. Reconnect your Google account to check the licence.'],
 }
 
 function licenceLabel(license: DesktopState['license'], tr: Translate) {
@@ -420,7 +421,12 @@ function Setup({ api, state, store, locale, setLocale, tr, refresh, loadStore, o
               <p className="portal-error" role="alert">{state.license.reason === 'not_registered' || state.license.reason === 'missing'
                 ? tr(`Aucune licence AICOM n’est associée au compte ${state.account.email}. Demandez à votre fournisseur d’ajouter cette adresse, puis réessayez.`, `No AICOM licence is linked to ${state.account.email}. Ask your provider to add this address, then try again.`)
                 : tr(...licenseMessages[state.license.reason ?? 'invalid'])}</p>
-              <div className="portal-form"><button className="portal-submit" type="button" disabled={busy} onClick={() => { void retryAccount() }}>{busy && <LoaderCircle className="spin-icon" size={16} />}{tr('Réessayer', 'Try again')}</button></div>
+              <div className="portal-form">
+                {state.license.reason === 'reauth'
+                  ? <button className="portal-submit" type="button" disabled={busy} onClick={() => { void connect() }}>{busy && <LoaderCircle className="spin-icon" size={16} />}{tr('Reconnecter Google', 'Reconnect Google')}</button>
+                  : <button className="portal-submit" type="button" disabled={busy} onClick={() => { void retryAccount() }}>{busy && <LoaderCircle className="spin-icon" size={16} />}{tr('Réessayer', 'Try again')}</button>}
+              </div>
+              {state.license.reason !== 'reauth' && <button className="portal-link" type="button" disabled={busy} onClick={() => { void connect() }}>{tr('Utiliser un autre compte Google', 'Use another Google account')}</button>}
               <p className="portal-description">{tr('Vous avez reçu un code de licence ? Vous pouvez aussi le saisir ici.', 'Received a licence code? You can also enter it here.')}</p>
             </> : <p className="portal-description">{tr('Saisissez le code reçu à l’achat. Il sera associé à ce PC.', 'Enter the code you received on purchase. It will be linked to this PC.')}</p>}
             {!state.licenseConfigured && <p className="portal-error" role="alert">{state.license.trial ? tr(`La période d’essai s’est terminée le ${state.license.expires}. Contactez-nous pour obtenir la version complète ; vos données sont conservées sur ce PC.`, `The trial period ended on ${state.license.expires}. Contact us for the full version; your data are kept on this PC.`) : tr('Cette installation n’est pas reliée au service de licences. Contactez le support.', 'This installation is not linked to the licence service. Contact support.')}</p>}

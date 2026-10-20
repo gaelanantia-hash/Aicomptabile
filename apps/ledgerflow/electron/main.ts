@@ -142,8 +142,11 @@ async function activateLicenseByAccount(idToken?: string) {
     if (!stored) return license.state()
     try {
       token = (await refreshTokens(config.endpoints, oauthClient(), stored.refreshToken)).idToken
-    } catch {
-      return { ...license.state(), reason: 'unreachable' as const }
+    } catch (error) {
+      // Google withdrew the access (expired, as every 7 days while the consent screen is in testing, or revoked): reconnect.
+      const next = { ...license.state(), reason: error instanceof AuthRevokedError ? 'reauth' as const : 'unreachable' as const }
+      send('license', next)
+      return next
     }
   }
   const next = token ? await license.activateAccount(token) : license.state()
