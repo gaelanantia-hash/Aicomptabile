@@ -88,6 +88,12 @@ Inserisci in GitHub i segreti `WINDOWS_CERTIFICATE` (il file `.pfx` in base64) e
 
 Dopo la prima versione firmata, il nome dell'editore non va più cambiato: gli aggiornamenti automatici controllano che il nuovo installer sia firmato dallo stesso editore.
 
+### Costruire l'installer senza pubblicarlo (GitHub)
+
+Su un PC con **Smart App Control attivo** l'installer non firmato non si costruisce: electron-builder avvia l'installer appena creato per estrarne il programma di disinstallazione, e Windows lo blocca («spawn UNKNOWN»; nel registro *CodeIntegrity* l'evento 3077). Il pacchetto Store (`npm run dist:store`) invece si costruisce, perché non avvia nessun eseguibile.
+
+Per avere l'installer senza pubblicarlo: *Actions → Build installer → Run workflow* su GitHub (o `gh workflow run build-installer.yml`). Il flusso esegue i test, costruisce con le stesse impostazioni del rilascio (configurazione dalle variabili del repository, firma se presente) e lascia `AICOM-Setup-<versione>.exe` da scaricare nella pagina dell'esecuzione per 30 giorni. Ai clienti non arriva niente: la pubblicazione resta al tag `v…`.
+
 ## Microsoft Store: la firma gratuita
 
 Lo Store firma gratis i pacchetti che pubblica: Windows li considera affidabili, quindi niente avviso SmartScreen, e Smart App Control dovrebbe lasciarli passare (da confermare con la prima versione pubblicata, installandola su questo PC, dove Smart App Control è attivo). La registrazione come sviluppatore è gratuita anche per le aziende (da maggio 2026).

@@ -1,0 +1,58 @@
+name: Build installer
+
+# Builds the Windows installer on GitHub's servers and keeps it as a download on the run's page, without publishing
+# anything to customers. Started by hand (Actions → Build installer → Run workflow, or `gh workflow run build-installer.yml`).
+# Useful on a PC where Smart App Control blocks building unsigned installers. Publishing stays with release.yml.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    name: Windows installer
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/ledgerflow
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/ledgerflow/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Write desktop.config.json
+        shell: bash
+        run: |
+          cat > desktop.config.json <<EOF
+          {
+            "googleClientId": "${{ vars.GOOGLE_OAUTH_CLIENT_ID }}",
+            "googleClientSecret": "${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}",
+            "licenseServerUrl": "${{ vars.LICENSE_SERVER_URL }}",
+            "licensePublicKey": "${{ vars.LICENSE_PUBLIC_KEY }}",
+            "updateFeedUrl": "https://storage.googleapis.com/${{ vars.RELEASE_BUCKET }}/releases",
+            "trialUntil": "${{ vars.TRIAL_UNTIL }}"
+          }
+          EOF
+      - name: Build (and sign when the settings are there)
+        run: npm run dist
+        env:
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_SIGNING_PUBLISHER: ${{ vars.AZURE_SIGNING_PUBLISHER }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      - name: Keep the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: apps/ledgerflow/release/AICOM-Setup-*.exe
+          retention-days: 30
