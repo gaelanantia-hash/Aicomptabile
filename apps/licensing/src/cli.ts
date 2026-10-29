@@ -7,6 +7,7 @@
 //   npm run admin -- revoke <id>
 //   npm run admin -- reset-devices <id>
 //   npm run admin -- delete <id>          (erases the record: deletion requests)
+//   npm run admin -- purge [--months 24] [--confirm]   (retention: shows, then with --confirm erases, what is past its keeping time)
 import { randomBytes } from 'node:crypto'
 import { generateKeys } from './token.ts'
 
@@ -56,8 +57,20 @@ switch (command) {
   case 'delete':
     console.log(await call('DELETE', `/licenses/${await resolveId(rest[0])}`))
     break
+  case 'purge': {
+    const confirm = rest.includes('--confirm')
+    const plan = await call('POST', '/purge', { months: option('months') ? Number(option('months')) : undefined, confirm }) as {
+      remove: { id: string; customer: string; reason: string }[]; devices: { id: string; customer: string; deviceIds: string[] }[]; undatedRevocations: { id: string; customer: string }[]; cutoff: string; months: number
+    }
+    console.log(`Retention ${plan.months} months: anything that ended before ${plan.cutoff.slice(0, 10)}.`)
+    console.table(plan.remove.map((item) => ({ id: item.id.slice(0, 12), customer: item.customer, reason: item.reason })))
+    for (const item of plan.devices) console.log(`  ${item.customer} (${item.id.slice(0, 12)}): ${item.deviceIds.length} PC(s) not seen since then`)
+    for (const item of plan.undatedRevocations) console.log(`  Revoked before revocation dates were kept, decide by hand: ${item.customer} (${item.id.slice(0, 12)})`)
+    console.log(confirm ? 'Erased.' : 'Nothing erased yet: run again with --confirm.')
+    break
+  }
   default:
-    console.log('Commands: keygen | create <customer> [--devices N] [--expires YYYY-MM-DD] [--emails a@x,b@y] | emails <id> [--add a@x,b@y] [--remove c@z] | list | revoke <id> | reset-devices <id> | delete <id>')
+    console.log('Commands: keygen | create <customer> [--devices N] [--expires YYYY-MM-DD] [--emails a@x,b@y] | emails <id> [--add a@x,b@y] [--remove c@z] | list | revoke <id> | reset-devices <id> | delete <id> | purge [--months N] [--confirm]')
 }
 
 /** Accepts the short id shown by `list` as well as the full one. */

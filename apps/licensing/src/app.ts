@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import rateLimit from 'express-rate-limit'
 import helmet from 'helmet'
 import type { GoogleVerifier } from './googleToken.ts'
+import { RETENTION_MONTHS, retentionPlan } from './retention.ts'
 import type { DeviceActivation, License, Store } from './store.ts'
 import { generateCode, hashCode, signToken } from './token.ts'
 
@@ -247,7 +248,7 @@ export function createApp({ store, privateKey, adminToken, releases = {}, graceD
   })
   admin.get('/licenses', (_request, response, next) => { store.list().then((licenses) => response.json({ licenses })).catch(next) })
   admin.post('/licenses/:id/revoke', (request, response, next) => {
-    store.update(String(request.params.id), (license) => ({ ...license, revoked: true }))
+    store.update(String(request.params.id), (license) => ({ ...license, revoked: true, revokedAt: license.revokedAt ?? now().toISOString() }))
       .then((license) => license ? response.json({ id: license.id, revoked: true }) : response.status(404).json({ error: 'not_found' })).catch(next)
   })
   admin.post('/licenses/:id/reset-devices', (request, response, next) => {
@@ -256,6 +257,24 @@ export function createApp({ store, privateKey, adminToken, releases = {}, graceD
   })
   admin.delete('/licenses/:id', (request, response, next) => {
     store.remove(String(request.params.id)).then((removed) => removed ? response.json({ deleted: true }) : response.status(404).json({ error: 'not_found' })).catch(next)
+  })
+  // Retention: erases what the privacy policy no longer allows to keep. Without `confirm` it only reports what it would erase.
+  admin.post('/purge', (request, response, next) => {
+    void (async () => {
+      const months = Number(request.body?.months ?? RETENTION_MONTHS)
+      if (!Number.isInteger(months) || months < 1) {
+        response.status(400).json({ error: 'invalid_months' })
+        return
+      }
+      const plan = retentionPlan(await store.list(), now(), months)
+      const confirm = request.body?.confirm === true
+      if (confirm) {
+        for (const item of plan.remove) await store.remove(item.id)
+        for (const item of plan.devices) await store.update(item.id, (license) => ({ ...license, activations: license.activations.filter((activation) => !item.deviceIds.includes(activation.deviceId)) }))
+        log({ severity: 'NOTICE', type: 'retention_purge', months, licences: plan.remove.length, devices: plan.devices.reduce((total, item) => total + item.deviceIds.length, 0) })
+      }
+      response.json({ ...plan, months, done: confirm })
+    })().catch(next)
   })
   app.use('/v1/admin', admin)
 

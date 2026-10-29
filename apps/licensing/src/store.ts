@@ -3,8 +3,8 @@ import { dirname } from 'node:path'
 
 /** `renewalHash`: a PC activated through its Google account renews with a secret of its own, never with the licence code. */
 export type DeviceActivation = { deviceId: string; deviceName: string; appVersion: string; activatedAt: string; lastSeenAt: string; email?: string; renewalHash?: string }
-/** `emails`: Google accounts that activate the licence by signing in, without ever seeing its code. */
-export type License = { id: string; customer: string; maxDevices: number; expires: string | null; revoked: boolean; createdAt: string; activations: DeviceActivation[]; emails?: string[] }
+/** `emails`: Google accounts that activate the licence by signing in, without ever seeing its code. `revokedAt` dates the revocation, for the retention rule. */
+export type License = { id: string; customer: string; maxDevices: number; expires: string | null; revoked: boolean; revokedAt?: string; createdAt: string; activations: DeviceActivation[]; emails?: string[] }
 
 /** Licence records only. No customer accounting data ever reaches this service. */
 export type Store = {

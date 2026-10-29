@@ -12,6 +12,8 @@ npm test
 
 Deployment to Cloud Run (Firestore store, secrets from Secret Manager) and day-to-day licence administration are described in [`../../docs/02-google-cloud.md`](../../docs/02-google-cloud.md).
 
+Retention (privacy policy): `npm run admin -- purge` lists the licences ended or revoked more than 24 months ago and the PCs not seen for as long; add `--confirm` to erase them, `--months N` for another period. The rule is in `src/retention.ts`.
+
 | Endpoint | Purpose |
 |---|---|
 | `POST /v1/licenses/activate`, `/check`, `/deactivate` | Called by the app; return a signed activation valid offline for `GRACE_DAYS` |

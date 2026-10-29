@@ -211,3 +211,36 @@ test('the admin manages which accounts open a licence; an address belongs to one
   assert.equal((await post('/v1/admin/licenses/unknown-id/emails', { add: 'z@gmail.com' }, adminToken)).status, 404)
   assert.equal((await post(`/v1/admin/licenses/${one.id}/emails`, { add: 'a2@gmail.com' })).status, 404)
 })
+
+test('retention: the purge reports first, erases only when confirmed, and dates revocations', async () => {
+  const purge = (body: object) => post('/v1/admin/purge', body, adminToken) as Promise<{ status: number; body: Record<string, never> }>
+  const ended = await create({ customer: 'Ended long ago', maxDevices: 1, expires: '2026-10-31' })
+  const revoked = await create({ customer: 'Revoked', maxDevices: 1 })
+  const kept = await create({ customer: 'Still a customer', maxDevices: 2 })
+  await activate(kept.code, 'pc-gone')
+  await post(`/v1/admin/licenses/${revoked.id}/revoke`, {}, adminToken)
+  const list = async () => ((await (await fetch(`${base}/v1/admin/licenses`, { headers: { Authorization: `Bearer ${adminToken}` } })).json()) as { licenses: { id: string; revokedAt?: string; activations: unknown[] }[] }).licenses
+  assert.equal((await list()).find((item) => item.id === revoked.id)?.revokedAt, clock.toISOString())
+
+  const before = clock
+  clock = new Date(clock.getTime() + 26 * 30 * 24 * 3600 * 1000)
+  await activate(kept.code, 'pc-current')
+  try {
+    assert.equal((await purge({})).status, 200)
+    const report = (await purge({})).body as unknown as { remove: { id: string }[]; devices: { id: string; deviceIds: string[] }[]; done: boolean }
+    assert.equal(report.done, false)
+    assert.ok(report.remove.some((item) => item.id === ended.id) && report.remove.some((item) => item.id === revoked.id))
+    assert.deepEqual(report.devices.find((item) => item.id === kept.id)?.deviceIds, ['pc-gone'])
+    assert.ok((await list()).some((item) => item.id === ended.id), 'nothing erased without confirm')
+
+    assert.equal(((await purge({ confirm: true })).body as unknown as { done: boolean }).done, true)
+    const after = await list()
+    assert.ok(!after.some((item) => item.id === ended.id || item.id === revoked.id))
+    assert.equal(after.find((item) => item.id === kept.id)?.activations.length, 1)
+    assert.ok(logged.some((entry) => entry.type === 'retention_purge'))
+    assert.equal((await purge({ months: 0 })).status, 400)
+    assert.equal((await fetch(`${base}/v1/admin/purge`, { method: 'POST' })).status, 404)
+  } finally {
+    clock = before
+  }
+})

@@ -4,16 +4,34 @@
 
 Senza verifica l'app resta in modalità Test: massimo 100 utenti aggiunti a mano e login che scade ogni 7 giorni. Per venderla serve la verifica.
 
-Cosa prepara la richiesta (*Schermata consenso OAuth → Pubblica app → Prepara per la verifica*):
+Con il solo ambito `drive.file` (non sensibile) Google chiede la **verifica del marchio**, di norma qualche giorno lavorativo, **senza** audit di sicurezza esterno e senza video. Tempi e richieste restano a discrezione di Google.
 
-1. Dominio di proprietà verificato in Search Console.
-2. Home page pubblica dell'app su quel dominio.
-3. Privacy policy e termini d'uso pubblicati su quel dominio (bozze in questa cartella).
-4. Logo e nome definitivi.
-5. Giustificazione degli ambiti: «L'app salva i dati contabili dell'utente in un file che essa stessa crea nel suo Drive; `drive.file` limita l'accesso a quel file».
-6. Video dimostrativo del login e dell'uso dei dati, se richiesto.
+### Prima di cominciare
 
-Con il solo ambito `drive.file` (non sensibile) è prevista la verifica del marchio, di norma qualche giorno lavorativo, **senza** audit di sicurezza esterno. Tempi e richieste restano a discrezione di Google.
+- **Ragione sociale e nome dell'app definitivi** (punto 3.1): Google verifica che nome e logo della schermata di consenso corrispondano a quelli del sito.
+- **Un dominio tuo** (per esempio `aicom-afrique.com`). Il dominio `run.app` di Cloud Run non va bene: non puoi dimostrare di esserne il proprietario.
+- Consigliato: un indirizzo di supporto su quel dominio (`support@…`).
+
+### Passi, in ordine
+
+1. **Verifica il dominio** in Google Search Console (search.google.com/search-console), con un account Google che sia proprietario o editor del progetto Google Cloud di AICOM.
+2. **Pubblica tre pagine sul dominio**, in francese (la lingua dei clienti):
+   - home page: che cosa fa AICOM, con il nome «AICOM» identico alla schermata di consenso e i link alle due pagine seguenti;
+   - informativa privacy (`privacy-policy.md`, completata e rivista; deve citare la *Google API Services User Data Policy* e l'uso limitato, la bozza lo fa già);
+   - termini d'uso (`termini-uso.md`).
+3. Nella console Google Cloud, **Google Auth Platform → Branding**:
+   - nome: `AICOM`; logo: `apps/ledgerflow/build/google-consent-logo.png` (120×120, già pronto);
+   - e-mail di supporto, link a home page, privacy e termini;
+   - **Domini autorizzati**: il tuo dominio.
+4. **Google Auth Platform → Accesso ai dati**: devono esserci solo `openid`, `…/auth/userinfo.email` e `…/auth/drive.file`. Se compare altro, toglilo: un ambito in più cambia il tipo di verifica. Giustificazione, in inglese (la leggono i revisori Google):
+   > AICOM is a desktop accounting application. It stores the user's own accounting data in one file it creates in the user's Google Drive, so the data stay with the user and can be restored on another PC. The drive.file scope limits access to that file; the app never reads or lists any other file. The email address is shown to the user to confirm which account is connected.
+5. **Google Auth Platform → Pubblico → Pubblica app**, poi **Invia per la verifica**.
+6. Rispondi alle e-mail di Google dalla casella del progetto: se chiedono correzioni, di solito riguardano nome o logo diversi tra sito e schermata, oppure il link alla privacy.
+
+### Cosa cambia dopo
+
+- I clienti non vedono più l'avviso «Google non ha verificato questa app».
+- Cade il limite di 100 utenti di prova e il collegamento non scade più ogni 7 giorni (oggi è la causa del banner «Reconnecter Google» citato in `supporto.md`).
 
 ## T48 — Privacy policy e termini d'uso (bozze da far rivedere)
 
@@ -63,7 +81,7 @@ Da rifare a ogni versione: `npm audit` (lo fa la CI) e una rilettura di `electro
 ### Ruoli
 
 - **Dati contabili del cliente** (clienti, fornitori, fatture, scritture): il cliente ne è *titolare* e li conserva nel proprio PC e nel proprio account Google. Tu **non li tratti**: non transitano né sono conservati sui tuoi sistemi. Google agisce per conto del cliente in base al contratto tra loro.
-- **Dati delle licenze**: sei *titolare*. Tratti: ragione sociale del cliente, impronta del codice licenza, per ogni PC attivato un identificativo casuale, il nome del PC, la versione dell'app e le date di attivazione e ultimo controllo. L'indirizzo e-mail Google del cliente **non** viene inviato al servizio licenze.
+- **Dati delle licenze**: sei *titolare*. Tratti: ragione sociale del cliente, impronta del codice licenza, gli indirizzi Google autorizzati ad attivare la licenza, e per ogni PC attivato un identificativo casuale, il nome del PC, la versione dell'app, le date di attivazione e ultimo controllo e, se il PC è stato attivato con l'account Google, l'indirizzo usato. (Una versione precedente di questo documento diceva che l'e-mail non arriva al servizio: non è più vero da quando le licenze si attivano anche con l'account Google.)
 - **Rapporti d'errore** (solo con consenso): versione dell'app, sistema operativo, messaggio e traccia tecnica dell'errore.
 
 ### Da fare prima della vendita
@@ -71,9 +89,9 @@ Da rifare a ogni versione: `npm audit` (lo fa la CI) e una rilettura di `electro
 | Adempimento | Stato |
 |---|---|
 | Informativa privacy pubblicata | Bozza in `privacy-policy.md` |
-| Registro dei trattamenti (licenze, rapporti d'errore) | Da compilare |
+| Registro dei trattamenti (licenze, rapporti d'errore, log, assistenza) | Bozza in `registro-trattamenti.md` |
 | Base giuridica: contratto per le licenze, consenso per i rapporti d'errore | Il consenso è una casella disattivata di default nelle impostazioni |
-| Conservazione: definire per quanto tieni le licenze scadute e i log | Da decidere (proposta: 24 mesi dopo la scadenza; log 30 giorni) |
+| Conservazione: licenze scadute e log | Licenze: 24 mesi dopo la scadenza o la revoca, PC non visti da 24 mesi tolti; applicata con `npm run admin -- purge` (prima mostra, cancella con `--confirm`; `--months N` per un'altra durata). Log e rapporti d'errore: 30 giorni, durata predefinita di Cloud Logging. Il periodo resta una tua decisione: se cambi i 24 mesi, aggiorna `RETENTION_MONTHS` in `apps/licensing/src/retention.ts` e l'informativa |
 | Cancellazione su richiesta | `npm run admin -- delete <id>` elimina il record della licenza e dei suoi PC. I log di Cloud Run seguono la loro scadenza |
 | Luogo del trattamento | Regione `europe-west8` (Milano) |
 | Contratto con Google Cloud come responsabile | Accetta l'addendum sul trattamento dei dati nella console |

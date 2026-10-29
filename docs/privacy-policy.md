@@ -36,13 +36,15 @@ Puoi revocare l'accesso in qualsiasi momento da AICOM (*Paramètres → Déconne
 
 Per verificare la licenza, AICOM invia al nostro servizio:
 
-- il codice di licenza;
+- il codice di licenza, oppure, se la licenza si attiva con l'account Google, la conferma di Google con il tuo **indirizzo e-mail**;
 - un identificativo casuale del PC e il nome del PC;
 - la versione di AICOM.
 
-Conserviamo inoltre la ragione sociale a cui è intestata la licenza e le date di attivazione e di ultimo controllo. Base giuridica: esecuzione del contratto di licenza. Conservazione: [durata].
+Conserviamo inoltre la ragione sociale a cui è intestata la licenza, gli indirizzi Google autorizzati ad attivarla, le date di attivazione e di ultimo controllo di ogni PC e, per i PC attivati con l'account Google, l'indirizzo usato. Del codice di licenza conserviamo solo un'impronta, non il codice. Base giuridica: esecuzione del contratto di licenza. Conservazione: per la durata della licenza e poi 24 mesi dalla sua scadenza o revoca; un PC che non si collega da 24 mesi viene tolto dalla licenza.
 
-**Rapporti d'errore (facoltativi).** Solo se attivi l'opzione nelle impostazioni, in caso di errore AICOM ci invia versione, sistema operativo e descrizione tecnica dell'errore. Non contengono dati contabili. Base giuridica: consenso, revocabile disattivando l'opzione. Conservazione: [durata].
+**Rapporti d'errore (facoltativi).** Solo se attivi l'opzione nelle impostazioni, in caso di errore AICOM ci invia versione, sistema operativo e descrizione tecnica dell'errore. Non contengono dati contabili. Base giuridica: consenso, revocabile disattivando l'opzione. Conservazione: 30 giorni.
+
+**Log tecnici.** Il nostro servizio registra l'indirizzo IP e l'esito di ogni richiesta, per sicurezza e diagnosi. Base giuridica: legittimo interesse. Conservazione: 30 giorni.
 
 ## Dove sono trattati
 

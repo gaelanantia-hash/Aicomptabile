@@ -39,6 +39,6 @@ Limite accettato: se due PC modificano i dati mentre sono entrambi offline, al r
 ## Cosa resta da decidere
 
 - **Nome dell'editore e `appId`**: oggi `com.aicom.desktop` e autore «AICOM» in `apps/ledgerflow/package.json`. Vanno allineati alla ragione sociale prima di firmare l'installer.
-- **Icona dell'applicazione**: non impostata; l'installer usa l'icona predefinita di Electron.
+- **Icona dell'applicazione**: impostata (`apps/ledgerflow/build/aicom.ico`, dal marchio AICOM). Da sostituire solo se cambia il marchio.
 - **macOS**: l'app è predisposta (cifratura via Keychain) ma l'installer macOS non è configurato né provato.
 - **Lingua**: interfaccia in francese e inglese. L'italiano non è previsto.
