@@ -1,7 +1,7 @@
 {
   "win32": {
-    "version": "0.2.9",
+    "version": "0.3.0",
     "url": "",
-    "notes": "Votre licence est liée à votre compte Google : elle s’active toute seule quand vous le connectez, sans code à saisir. Un bouton en forme d’œil permet d’afficher le mot de passe saisi. Vos données sur Google Drive sont désormais chiffrées : seul un identifiant AICOM de votre entreprise peut les ouvrir. Sur un nouveau PC, connectez-vous avec votre identifiant et votre mot de passe AICOM. Démarrage plus rapide, polices intégrées (aucun téléchargement au lancement). Synchronisation Google Drive beaucoup plus légère : seules les modifications récentes sont envoyées, l’historique est archivé une seule fois. Sur une connexion facturée au volume (téléphone), les mises à jour attendent votre accord. Installateur plus petit. Plan comptable SYSCOHADA et pays d’Afrique centrale, états financiers, clôture de l’exercice, écritures définitives (contre-passation), sauvegarde automatique quotidienne."
+    "notes": "États financiers SYSCOHADA complets : bilan, compte de résultat et tableau des flux de trésorerie, avec l’exercice précédent, exportés ensemble en Excel. Déclaration de TVA mensuelle : détail par taux, crédit reporté, part TVA et centimes additionnels communaux au Cameroun, et comptabilisation de la liquidation. Factures imprimables en PDF avec les mentions obligatoires (NIU ou NIF, RCCM, régime fiscal) et le montant en lettres : complétez les coordonnées de votre entreprise dans Paramètres et le NIU de vos clients. Écritures définitives renforcées : une écriture comptabilisée ne se modifie plus, un exercice clôturé ne se rouvre plus. Clients douteux (416), avances (419) et fournisseurs d’immobilisations (481) suivis comme les autres comptes de tiers. Messages plus clairs lors de la connexion à Google. Mises à jour de sécurité."
   }
 }
