@@ -1,15 +1,18 @@
 import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { createPortal } from 'react-dom'
 import { ArrowRight, Check, CheckCircle2, ChevronRight, FileDown, FileSpreadsheet, Link2, LockKeyhole, LockKeyholeOpen, Pencil, Plus, Printer, Trash2, Undo2 } from 'lucide-react'
 import {
-  accountsOf, addDays, chartOf, isReversed, reversePiece, roundAmount, vatRatesOf, advancePurchaseDoc, advanceSalesDoc, articleInUse, registerSupplierInvoice, autoLetter, completeWorkOrder, docTotals, isTiersAccount, isoDate, tiersInUse,
+  accountsOf, addDays, chartOf, countries, isReversed, reversePiece, roundAmount, vatRatesOf, advancePurchaseDoc, advanceSalesDoc, articleInUse, registerSupplierInvoice, autoLetter, completeWorkOrder, docTotals, isTiersAccount, isoDate, tiersInUse, tiersKind,
   missingComponent, movesStock, nextNumber, nextSalesType, postPiece, purchaseTypes, round2, sageModules, salesTypes,
   saveSalesDoc, savePurchaseDoc, shortage, supplierStockAnalysis, tiersBalance, tiersName,
   type Article, type Client, type DocLine, type Entry, type ModuleId, type Origin, type Payment, type PieceLine,
   type PurchaseDoc, type PurchaseDocType, type SalesDoc, type SalesDocType, type Store, type Supplier,
 } from './sageData'
-import { balanceSheet, incomeStatement, type StatementLine } from './syscohada'
+import { balanceSheet, cashFlowStatement, incomeStatement, type StatementLine } from './syscohada'
 import { assetAccounts, assignResult, closeYear, depreciationFor, depreciationSchedule, openingStock, postDepreciation, postInventory, registerAsset, stockValuation, yearEndStatus } from './yearEnd'
 import { entriesSheet } from './sageExport'
+import { settleVat, unsettledBefore, vatReturn, type VatReturn } from './vat'
+import { invoiceSheet, missingMentions } from './invoice'
 import { downloadXlsx, type Sheet } from './xlsx'
 import './SageModules.css'
 
@@ -94,9 +97,8 @@ function periodsOf(store: Store) {
 }
 
 function tiersOptions(store: Store, account: string) {
-  if (account.startsWith('411')) return store.clients
-  if (account.startsWith('401')) return store.suppliers
-  return []
+  const kind = tiersKind(store, account)
+  return kind ? store[kind] : []
 }
 
 function stockAvailable(ctx: Ctx, lines: DocLine[]) {
@@ -324,6 +326,78 @@ function EntriesTable({ ctx, entries, action, renderLabel }: ViewProps & { entri
 
 /* Gestion commerciale · Saisie de caisse */
 
+const taxIdLabelOf = (store: Store) => countries.find((country) => country.code === store.country)?.taxIdLabel ?? 'NIF'
+
+/** A sales document laid out for printing on A4, with the mentions an invoice must carry. Only the sheet is printed. */
+function InvoiceSheet({ ctx, doc, onClose }: ViewProps & { doc: SalesDoc; onClose: () => void }) {
+  const { tr, store, money, day } = ctx
+  const sheet = invoiceSheet(store, doc)
+  const missing = missingMentions(store, doc)
+  const info = store.companyInfo
+  const due = store.entries.find((entry) => entry.piece === doc.id && entry.due)?.due
+  // The sheet is a French document: rates are written 19,25 %.
+  const rate = (value: number) => `${new Intl.NumberFormat('fr-FR').format(value)} %`
+  const identity = [info.taxId && `${sheet.taxIdLabel} : ${info.taxId}`, info.rccm && `RCCM : ${info.rccm}`, info.nationalId && `Id. nat. : ${info.nationalId}`].filter(Boolean).join(' · ')
+  // Mounted on <body>, so printing can hide the rest of the app entirely.
+  return createPortal(
+    <div className="modal-backdrop sg-invoice-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <section className="sg-invoice-frame" role="dialog" aria-modal="true" aria-label={`${sheet.title} ${doc.id}`}>
+        <div className="sg-invoice-toolbar sg-noprint">
+          {missing.length > 0 && <span className="sg-invoice-missing">{tr('Mentions manquantes', 'Missing mentions')} : {missing.join(', ')}</span>}
+          <div className="row-actions">
+            {ctx.savePdf && <button className="approve-button" type="button" onClick={() => ctx.savePdf?.(`${sheet.title} ${doc.id}`)}><FileDown size={13} />PDF</button>}
+            <button className="primary-button" type="button" onClick={() => window.print()}><Printer size={14} />{tr('Imprimer', 'Print')}</button>
+            <button className="approve-button" type="button" onClick={onClose}>{tr('Fermer', 'Close')}</button>
+          </div>
+        </div>
+        <article className="sg-invoice">
+          <header className="sg-invoice-head">
+            <div>
+              <strong className="sg-invoice-company">{store.company}</strong>
+              {info.address && <span>{info.address}{info.city && `, ${info.city}`}</span>}
+              {(info.phone || info.email) && <span>{[info.phone, info.email].filter(Boolean).join(' · ')}</span>}
+              {identity && <span>{identity}</span>}
+              {(info.taxRegime || info.taxOffice) && <span>{[info.taxRegime && `${tr('Régime', 'Regime')} : ${info.taxRegime}`, info.taxOffice && `${tr('Centre des impôts', 'Tax office')} : ${info.taxOffice}`].filter(Boolean).join(' · ')}</span>}
+            </div>
+            <div className="sg-invoice-title">
+              <strong>{sheet.title}</strong>
+              <span>N° {doc.id}</span>
+              <span>{tr('Date', 'Date')} : {day(doc.date)}</span>
+              {due && doc.type === 'facture' && <span>{tr('Échéance', 'Due')} : {day(due)}</span>}
+            </div>
+          </header>
+          <div className="sg-invoice-client">
+            <small>{tr('Client', 'Customer')}</small>
+            <strong>{sheet.client?.name ?? tr('Client comptoir', 'Walk-in customer')}</strong>
+            {sheet.client && [sheet.client.address, sheet.client.city].filter(Boolean).length > 0 && <span>{[sheet.client.address, sheet.client.city].filter(Boolean).join(', ')}</span>}
+            {sheet.client?.taxId && <span>{sheet.taxIdLabel} : {sheet.client.taxId}</span>}
+          </div>
+          <table className="sg-invoice-lines">
+            <thead><tr><th>{tr('Réf.', 'Ref.')}</th><th>{tr('Désignation', 'Description')}</th><th className="sg-num">{tr('Qté', 'Qty')}</th><th className="sg-num">{tr('P.U. HT', 'Unit price')}</th><th className="sg-num">{tr('TVA', 'VAT')}</th><th className="sg-num">{tr('Montant HT', 'Net amount')}</th></tr></thead>
+            <tbody>{sheet.lines.map((line, index) => <tr key={index}><td>{line.ref}</td><td>{line.name}</td><td className="sg-num">{line.qty}</td><td className="sg-num">{money(line.price)}</td><td className="sg-num">{rate(line.vat)}</td><td className="sg-num">{money(line.total)}</td></tr>)}</tbody>
+          </table>
+          <div className="sg-invoice-totals">
+            <table>
+              <tbody>
+                {sheet.rates.map((line) => <tr key={line.rate}><td>{tr(`Base HT à ${rate(line.rate)}`, `Net at ${line.rate}%`)}</td><td className="sg-num">{money(line.base)}</td></tr>)}
+                <tr><td>{tr('Total HT', 'Total net')}</td><td className="sg-num">{money(sheet.totals.ht)}</td></tr>
+                {sheet.vatParts.length
+                  ? sheet.vatParts.map((part) => <tr key={part.label}><td>{part.label}</td><td className="sg-num">{money(part.amount)}</td></tr>)
+                  : <tr><td>{tr('Total TVA', 'Total VAT')}</td><td className="sg-num">{money(sheet.totals.vat)}</td></tr>}
+                <tr className="sg-invoice-grand"><td>{tr('Net à payer TTC', 'Total due')}</td><td className="sg-num">{money(sheet.totals.ttc)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="sg-invoice-words">{tr(`Arrêté${doc.type === 'facture' ? 'e la présente facture' : ' le présent document'} à la somme de : `, 'Amount in words: ')}<strong>{sheet.words}</strong>.</p>
+          {doc.type === 'ticket' && <p className="sg-invoice-words">{tr('Payé', 'Paid')} : {doc.payment === 'card' ? tr('carte', 'card') : tr('espèces', 'cash')}</p>}
+          {info.bank && <p className="sg-invoice-words">{tr('Règlement par virement', 'Payment by transfer')} : {info.bank}</p>}
+        </article>
+      </section>
+    </div>,
+    document.body,
+  )
+}
+
 function ClientsView({ ctx, origin }: ViewProps & { origin: Origin }) {
   const { tr, store, money } = ctx
   const blank: Client = { code: '', name: '', city: '', email: '' }
@@ -376,6 +450,8 @@ function ClientsView({ ctx, origin }: ViewProps & { origin: Origin }) {
           <label>{tr('Nom', 'Name')}<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
           <label>{tr('Ville', 'City')}<input value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} /></label>
           <label>E-mail<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+          <label>{tr('Adresse', 'Address')}<input value={form.address ?? ''} onChange={(event) => setForm({ ...form, address: event.target.value })} /></label>
+          <label>{taxIdLabelOf(store)}<input value={form.taxId ?? ''} onChange={(event) => setForm({ ...form, taxId: event.target.value })} /></label>
         </div>
         <SaveButton label={tr('Enregistrer le client', 'Save customer')} onClick={save} />
       </Panel>
@@ -386,6 +462,7 @@ function ClientsView({ ctx, origin }: ViewProps & { origin: Origin }) {
 function SalesDocsView({ ctx, origin }: ViewProps & { origin: Origin }) {
   const { tr, store, money, day } = ctx
   const [filter, setFilter] = useState<SalesDocType | 'all'>('all')
+  const [printing, setPrinting] = useState<SalesDoc | null>(null)
   const [client, setClient] = useState('')
   const docs = store.salesDocs
     .filter((doc) => (origin === 'commercial' || doc.origin === 'caisse') && (filter === 'all' || doc.type === filter) && (!client || doc.client === client))
@@ -412,6 +489,7 @@ function SalesDocsView({ ctx, origin }: ViewProps & { origin: Origin }) {
   const total = docs.reduce((sum, doc) => sum + docTotals(doc.lines, store.currency).ttc, 0)
 
   return (
+    <>
     <Panel title={tr('Documents de vente', 'Sales documents')} subtitle={tr('Devis, commandes, bons de livraison, factures et tickets', 'Quotes, orders, delivery notes, invoices and tickets')}>
       <Chips value={filter} onChange={setFilter} options={[['all', tr('Tous', 'All')], ...(Object.keys(salesTypes) as SalesDocType[]).map((type): [SalesDocType, string] => [type, typeLabel(type)])]} />
       <div className="sg-form">
@@ -435,6 +513,7 @@ function SalesDocsView({ ctx, origin }: ViewProps & { origin: Origin }) {
                   <td className="sg-num">{money(totals.ht)}</td><td className="sg-num">{money(totals.ttc)}</td>
                   <td>{doc.posted ? <Badge tone="good">{tr('Comptabilisé', 'Posted')}</Badge> : doc.stockMoved ? <Badge tone="warn">{tr('Livré · à facturer', 'Delivered · to invoice')}</Badge> : <Badge>{tr('En cours', 'Open')}</Badge>}</td>
                   <td><div className="row-actions">
+                    <button className="reject-button" type="button" title={tr('Imprimer', 'Print')} aria-label={`${tr('Imprimer', 'Print')} ${doc.id}`} onClick={() => setPrinting(doc)}><Printer size={13} /></button>
                     {target && <button className="approve-button" type="button" onClick={() => advance(doc, target)}>{typeLabel(target)}<ArrowRight size={12} /></button>}
                     {!doc.stockMoved && !doc.posted && <button className="reject-button" type="button" aria-label={`${tr('Supprimer', 'Delete')} ${doc.id}`} onClick={() => remove(doc)}><Trash2 size={13} /></button>}
                   </div></td>
@@ -445,6 +524,8 @@ function SalesDocsView({ ctx, origin }: ViewProps & { origin: Origin }) {
         </table>
       </div> : <div className="empty-state">{tr('Aucun document.', 'No documents.')}</div>}
     </Panel>
+    {printing && <InvoiceSheet ctx={ctx} doc={printing} onClose={() => setPrinting(null)} />}
+    </>
   )
 }
 
@@ -1276,7 +1357,7 @@ function FreeEntryView({ ctx }: ViewProps) {
   const debit = sum(lines.map((line) => num(line.debit)))
   const credit = sum(lines.map((line) => num(line.credit)))
   const used = lines.filter((line) => num(line.debit) || num(line.credit))
-  const complete = used.every((line) => line.account && (!isTiersAccount(line.account) || line.tiers))
+  const complete = used.every((line) => line.account && (!isTiersAccount(store, line.account) || line.tiers))
   const balanced = debit > 0 && debit === credit
 
   function save() {
@@ -1532,7 +1613,7 @@ function AdvancedView({ ctx }: ViewProps) {
 
 function PeriodicView({ ctx }: ViewProps) {
   const { tr, store, money } = ctx
-  const tiersEntries = store.entries.filter((entry) => entry.tiers && isTiersAccount(entry.account))
+  const tiersEntries = store.entries.filter((entry) => entry.tiers && isTiersAccount(store, entry.account))
   const unlettered = tiersEntries.filter((entry) => !entry.letter).length
 
   function letter() {
@@ -1549,6 +1630,10 @@ function PeriodicView({ ctx }: ViewProps) {
     const isClosed = store.closedPeriods.includes(month)
     if (isClosed && !ctx.admin) {
       ctx.notify(tr('Seul un administrateur peut rouvrir une période clôturée.', 'Only an administrator can reopen a closed period.'))
+      return
+    }
+    if (isClosed && store.yearEnd[month.slice(0, 4)]?.closing) {
+      ctx.notify(tr(`L’exercice ${month.slice(0, 4)} est clôturé définitivement : ce mois ne peut pas être rouvert.`, `Financial year ${month.slice(0, 4)} is closed for good: this month cannot be reopened.`))
       return
     }
     ctx.apply({ ...store, closedPeriods: isClosed ? store.closedPeriods.filter((item) => item !== month) : [...store.closedPeriods, month] })
@@ -1591,36 +1676,114 @@ function PeriodicView({ ctx }: ViewProps) {
   )
 }
 
-/** One SYSCOHADA statement: reference, label and amount, subtotals in bold. Empty detail lines are left out. */
-function StatementTable({ title, lines, money }: { title: string; lines: StatementLine[]; money: (amount: number) => string }) {
+/**
+ * One SYSCOHADA statement: reference, label, the year's amount and the previous year's, as the official forms show them.
+ * Subtotals are in bold; detail lines empty in both years are left out.
+ */
+function StatementTable({ title, lines, previous, year, money }: { title: string; lines: StatementLine[]; previous: StatementLine[]; year: number; money: (amount: number) => string }) {
+  const before = new Map(previous.map((line) => [line.ref, line.amount]))
   return (
     <div className="table-scroll">
       <table className="data-table sg-table">
-        <thead><tr><th>{'RÉF.'}</th><th>{title}</th><th className="sg-num">{'NET'}</th></tr></thead>
-        <tbody>{lines.filter((line) => line.total || line.amount).map((line) => line.total
-          ? <tr key={line.ref}><td><strong>{line.ref}</strong></td><td><strong>{line.label}</strong></td><td className="sg-num"><strong>{money(line.amount)}</strong></td></tr>
-          : <tr key={line.ref}><td>{line.ref}</td><td>{line.label}</td><td className="sg-num">{money(line.amount)}</td></tr>)}</tbody>
+        <thead><tr><th>{'RÉF.'}</th><th>{title}</th><th className="sg-num">{year}</th><th className="sg-num">{year - 1}</th></tr></thead>
+        <tbody>{lines.filter((line) => line.total || line.amount || before.get(line.ref)).map((line) => {
+          const cells = [line.ref, line.label, money(line.amount), money(before.get(line.ref) ?? 0)]
+          return <tr key={line.ref}>{cells.map((cell, index) => <td key={index} className={index > 1 ? 'sg-num' : undefined}>{line.total ? <strong>{cell}</strong> : cell}</td>)}</tr>
+        })}</tbody>
       </table>
     </div>
   )
 }
 
+/** The month's VAT return as rows: the same content on screen and in Excel. */
+function vatRows(declaration: VatReturn, tr: Ctx['tr']): [string, number][] {
+  return [
+    ...declaration.sales.map((line): [string, number] => [tr(`Ventes à ${line.rate} % : base`, `Sales at ${line.rate}%: base`), line.base]),
+    ...declaration.sales.filter((line) => line.rate).map((line): [string, number] => [tr(`TVA à ${line.rate} %`, `VAT at ${line.rate}%`), line.vat]),
+    ...(declaration.otherSales.base || declaration.otherSales.vat ? [[tr('Autres opérations saisies : base', 'Other posted operations: base'), declaration.otherSales.base], [tr('Autres opérations saisies : TVA', 'Other posted operations: VAT'), declaration.otherSales.vat]] satisfies [string, number][] : []),
+    [tr('Chiffre d’affaires HT (70)', 'Net revenue (70)'), declaration.salesBase],
+    [tr('TVA collectée', 'VAT collected'), declaration.collected],
+    ...declaration.deductibleByAccount.map((line): [string, number] => [`${tr('TVA déductible', 'Deductible VAT')} ${line.account} · ${line.label}`, line.amount]),
+    [tr('Total TVA déductible', 'Total deductible VAT'), declaration.deductible],
+    [tr('Crédit de TVA reporté du mois précédent', 'VAT credit carried from last month'), declaration.previousCredit],
+    ...declaration.components.map((line): [string, number] => [line.label, line.amount]),
+    [declaration.balance >= 0 ? tr('TVA nette à payer', 'Net VAT payable') : tr('Crédit de TVA à reporter', 'VAT credit carried forward'), Math.abs(declaration.balance)],
+  ]
+}
+
+function VatDeclaration({ ctx, period }: ViewProps & { period: string }) {
+  const { tr, store, money, day } = ctx
+  const declaration = vatReturn(store, period)
+  const waiting = unsettledBefore(store, period)
+
+  function settle() {
+    if (waiting) {
+      ctx.notify(tr(`Liquidez d’abord la TVA de ${waiting} : les mois se liquident dans l’ordre.`, `Settle the VAT of ${waiting} first: months are settled in order.`))
+      return
+    }
+    if (ctx.closed(`${period}-01`)) return
+    const next = settleVat(store, period)
+    if (next === store) return
+    const piece = next.entries[next.entries.length - 1].piece
+    ctx.apply(next)
+    ctx.audit('Settled VAT', `${period} · ${piece}`)
+    ctx.notify(tr(`TVA de ${period} liquidée par la pièce ${piece}.`, `VAT for ${period} settled by document ${piece}.`))
+  }
+
+  return (
+    <>
+      <div className="sg-stats">
+        <Stat label={tr('TVA collectée', 'VAT collected')} value={money(declaration.collected)} />
+        <Stat label={tr('TVA déductible', 'Deductible VAT')} value={money(declaration.deductible)} />
+        <Stat label={tr('Crédit reporté', 'Credit carried in')} value={money(declaration.previousCredit)} />
+        <Stat label={declaration.balance >= 0 ? tr('TVA nette à payer', 'Net VAT payable') : tr('Crédit à reporter', 'Credit carried forward')} value={money(Math.abs(declaration.balance))} />
+      </div>
+      <div className="table-scroll">
+        <table className="data-table sg-table">
+          <thead><tr><th>{tr('RUBRIQUE', 'ITEM')}</th><th className="sg-num">{tr('MONTANT', 'AMOUNT')}</th></tr></thead>
+          <tbody>{vatRows(declaration, tr).map(([label, amount]) => <tr key={label}><td>{label}</td><td className="sg-num">{money(amount)}</td></tr>)}</tbody>
+        </table>
+      </div>
+      <p className="dk-note">
+        {declaration.due && tr(`Échéance habituelle de dépôt et de paiement : ${day(declaration.due)}. `, `Usual filing and payment deadline: ${day(declaration.due)}. `)}
+        {tr('Taux et échéances à vérifier chaque année avec la loi de finances. Les retenues de TVA à la source ne sont pas encore prises en compte.', 'Rates and deadlines must be checked each year against the finance law. VAT withheld at source is not handled yet.')}
+      </p>
+      <div className="sg-actions sg-noprint">
+        {declaration.settled
+          ? <Badge tone="good">{tr(`Liquidée · ${declaration.settled}`, `Settled · ${declaration.settled}`)}</Badge>
+          : <button className="primary-button" type="button" disabled={!declaration.collected && !declaration.deductible} onClick={settle}><Check size={14} />{tr('Comptabiliser la liquidation', 'Post the VAT settlement')}</button>}
+      </div>
+    </>
+  )
+}
+
+/** Every SYSCOHADA statement of a financial year, each with the previous year beside it, as they are filed together. */
+function financialStatements(store: Store, year: number) {
+  const [now, before] = [year, year - 1].map((item) => ({ position: balanceSheet(store, item), income: incomeStatement(store, item), flows: cashFlowStatement(store, item) }))
+  return {
+    assets: { lines: now.position.assets, previous: before.position.assets },
+    liabilities: { lines: now.position.liabilities, previous: before.position.liabilities },
+    income: { lines: now.income.lines, previous: before.income.lines },
+    flows: { lines: now.flows.lines, previous: before.flows.lines, gap: now.flows.gap },
+  }
+}
+
 function ReportsView({ ctx }: ViewProps) {
   const { tr, store, money } = ctx
-  const [report, setReport] = useState<'balance' | 'ledger' | 'journal' | 'vat' | 'bilan' | 'resultat'>('balance')
+  const [report, setReport] = useState<'balance' | 'ledger' | 'journal' | 'vat' | 'bilan' | 'resultat' | 'flux' | 'etats'>('balance')
   const [month, setMonth] = useState('all')
   const [account, setAccount] = useState<string>(accountsOf(store).clients)
   const [journal, setJournal] = useState('all')
   // Financial statements cover a financial year, which OHADA sets to the calendar year.
   const years = Array.from(new Set([...store.entries.map((entry) => entry.date.slice(0, 4)), isoDate().slice(0, 4)])).sort().reverse()
   const [year, setYear] = useState(years[0])
-  const statement = report === 'bilan' || report === 'resultat'
-  const position = report === 'bilan' ? balanceSheet(store, Number(year)) : undefined
-  const income = report === 'resultat' ? incomeStatement(store, Number(year)) : undefined
+  const statement = report === 'bilan' || report === 'resultat' || report === 'flux' || report === 'etats'
+  const statements = statement ? financialStatements(store, Number(year)) : undefined
   const entries = store.entries.filter((entry) => month === 'all' || period(entry.date) === month)
   const titles = {
     balance: tr('Balance des comptes', 'Trial balance'), ledger: tr('Grand livre', 'General ledger'), journal: tr('Journal', 'Journal'), vat: tr('Déclaration de TVA', 'VAT return'),
     bilan: tr('Bilan SYSCOHADA', 'SYSCOHADA balance sheet'), resultat: tr('Compte de résultat SYSCOHADA', 'SYSCOHADA income statement'),
+    flux: tr('Tableau des flux de trésorerie', 'Cash flow statement'), etats: tr('États financiers SYSCOHADA', 'SYSCOHADA financial statements'),
   }
   const balance = store.accounts.map((item) => {
     const lines = entries.filter((entry) => entry.account === item.number)
@@ -1634,20 +1797,25 @@ function ReportsView({ ctx }: ViewProps) {
   const deductible = movement(prefixes.vatDeductible, -1)
   const listed = report === 'ledger' ? entries.filter((entry) => entry.account === account) : entries.filter((entry) => journal === 'all' || entry.journal === journal)
   const fileName = `${titles[report]} ${statement ? year : month === 'all' ? '' : month}`.trim()
-  const statementRows = (lines: StatementLine[]) => lines.map((line) => [line.ref, line.label, line.amount])
+  const statementSheet = (name: string, { lines, previous }: { lines: StatementLine[]; previous: StatementLine[] }): Sheet => {
+    const before = new Map(previous.map((line) => [line.ref, line.amount]))
+    return { name, rows: [['Réf.', name, `Exercice ${year}`, `Exercice ${Number(year) - 1}`], ...lines.map((line) => [line.ref, line.label, line.amount, before.get(line.ref) ?? 0])] }
+  }
 
   function exportExcel() {
-    if (position) {
-      downloadXlsx(`${fileName}.xlsx`, [{ name: 'Actif', rows: [['Réf.', 'Actif', 'Net'], ...statementRows(position.assets)] }, { name: 'Passif', rows: [['Réf.', 'Passif', 'Net'], ...statementRows(position.liabilities)] }])
-      return
-    }
-    if (income) {
-      downloadXlsx(`${fileName}.xlsx`, [{ name: 'Compte de résultat', rows: [['Réf.', 'Libellé', 'Montant'], ...statementRows(income.lines)] }])
+    // Any statement exports the whole set, in one workbook, as it is handed to the tax office.
+    if (statements) {
+      downloadXlsx(`${titles.etats} ${year}.xlsx`, [
+        statementSheet('Bilan actif', statements.assets), statementSheet('Bilan passif', statements.liabilities),
+        statementSheet('Compte de résultat', statements.income), statementSheet('Flux de trésorerie', statements.flows),
+      ])
       return
     }
     const sheet: Sheet = report === 'balance'
       ? { name: titles.balance, rows: [['Compte', 'Intitulé', 'Débit', 'Crédit', 'Solde'], ...balance.map((row) => [row.number, row.label, row.debit, row.credit, row.solde])] }
-      : report === 'vat'
+      : report === 'vat' && month !== 'all'
+        ? { name: titles.vat, rows: [['Rubrique', 'Montant'], ...vatRows(vatReturn(store, month), tr)] }
+        : report === 'vat'
         ? { name: titles.vat, rows: [['Rubrique', 'Montant'], ['Ventes HT', movement('7', 1)], ['TVA collectée', collected], ['Achats HT', movement('6', -1)], ['TVA déductible', deductible], ['TVA à payer', round2(collected - deductible)]] }
         : { name: titles[report], rows: entriesSheet(store, listed) }
     downloadXlsx(`${fileName}.xlsx`, [sheet])
@@ -1662,7 +1830,7 @@ function ReportsView({ ctx }: ViewProps) {
       </div>}>
       <Chips value={report} onChange={setReport} options={[
         ['balance', tr('Balance', 'Trial balance')], ['ledger', tr('Grand livre', 'Ledger')], ['journal', tr('Journal', 'Journal')], ['vat', tr('TVA', 'VAT')],
-        ...(store.chart === 'syscohada' ? [['bilan', tr('Bilan', 'Balance sheet')], ['resultat', tr('Compte de résultat', 'Income statement')]] satisfies [typeof report, string][] : []),
+        ...(store.chart === 'syscohada' ? [['bilan', tr('Bilan', 'Balance sheet')], ['resultat', tr('Compte de résultat', 'Income statement')], ['flux', tr('Flux de trésorerie', 'Cash flows')], ['etats', tr('États financiers', 'Financial statements')]] satisfies [typeof report, string][] : []),
       ]} />
       <div className="sg-form sg-noprint">
         {statement && <label>{tr('Exercice', 'Financial year')}<select value={year} onChange={(event) => setYear(event.target.value)}>{years.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
@@ -1678,18 +1846,24 @@ function ReportsView({ ctx }: ViewProps) {
         </table>
       </div>}
       {(report === 'ledger' || report === 'journal') && <EntriesTable ctx={ctx} entries={listed} />}
-      {report === 'vat' && <div className="sg-stats">
+      {report === 'vat' && month !== 'all' && <VatDeclaration ctx={ctx} period={month} />}
+      {report === 'vat' && month === 'all' && <p className="dk-note">{tr('Choisissez un mois pour obtenir la déclaration mensuelle et comptabiliser la liquidation.', 'Choose a month to get the monthly return and post the settlement.')}</p>}
+      {report === 'vat' && month === 'all' && <div className="sg-stats">
         <Stat label={tr('Ventes HT (classe 7)', 'Net sales (class 7)')} value={money(movement('7', 1))} />
         <Stat label={tr(`TVA collectée (${prefixes.vatCollected})`, `VAT collected (${prefixes.vatCollected})`)} value={money(collected)} />
         <Stat label={tr('Achats HT (classe 6)', 'Net purchases (class 6)')} value={money(movement('6', -1))} />
         <Stat label={tr(`TVA déductible (${prefixes.vatDeductible})`, `Deductible VAT (${prefixes.vatDeductible})`)} value={money(deductible)} />
         <Stat label={collected >= deductible ? tr('TVA à payer', 'VAT payable') : tr('Crédit de TVA', 'VAT credit')} value={money(Math.abs(round2(collected - deductible)))} />
       </div>}
-      {position && <>
-        <StatementTable title={tr('ACTIF', 'ASSETS')} lines={position.assets} money={money} />
-        <StatementTable title={tr('PASSIF', 'LIABILITIES AND EQUITY')} lines={position.liabilities} money={money} />
+      {statements && (report === 'bilan' || report === 'etats') && <>
+        <StatementTable title={tr('ACTIF', 'ASSETS')} {...statements.assets} year={Number(year)} money={money} />
+        <StatementTable title={tr('PASSIF', 'LIABILITIES AND EQUITY')} {...statements.liabilities} year={Number(year)} money={money} />
       </>}
-      {income && <StatementTable title={tr('COMPTE DE RÉSULTAT', 'INCOME STATEMENT')} lines={income.lines} money={money} />}
+      {statements && (report === 'resultat' || report === 'etats') && <StatementTable title={tr('COMPTE DE RÉSULTAT', 'INCOME STATEMENT')} {...statements.income} year={Number(year)} money={money} />}
+      {statements && (report === 'flux' || report === 'etats') && <>
+        <StatementTable title={tr('TABLEAU DES FLUX DE TRÉSORERIE', 'CASH FLOW STATEMENT')} {...statements.flows} year={Number(year)} money={money} />
+        {statements.flows.gap !== 0 && <p className="dk-note">{tr(`Écart de ${money(statements.flows.gap)} entre la trésorerie du bilan et celle du tableau : une écriture inhabituelle (virement entre comptes d’immobilisations, par exemple) est à analyser.`, `${money(statements.flows.gap)} difference between the balance-sheet cash and the statement’s: an unusual entry (a transfer between fixed-asset accounts, for instance) needs checking.`)}</p>}
+      </>}
       {statement && <p className="dk-note">{tr('Montants tirés des écritures de l’exercice. Les variations de stocks (603) et les amortissements n’apparaissent qu’une fois comptabilisés : faites valider les états par votre expert-comptable avant dépôt.', 'Amounts come from the year’s entries. Stock variations (603) and depreciation only appear once posted: have your accountant check the statements before filing.')}</p>}
     </Panel>
   )

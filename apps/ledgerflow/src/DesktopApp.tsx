@@ -7,7 +7,7 @@ import {
 import type { AccessEvent, AccessRow, AppUser, AuditRow, AuthResult, DesktopApi, DesktopState, LicenseReason, Revision, SyncState } from './desktopApi'
 import type { FinanceSection } from './FinanceSections'
 import { exportWorkbook } from './sageExport'
-import { countries, createEmptyStore, createStore, setupFor, vatRatesOf, type ModuleId, type Store } from './sageData'
+import { countries, createEmptyStore, createStore, ledgerViolation, setupFor, vatRatesOf, type CompanyInfo, type LedgerViolation, type ModuleId, type Store } from './sageData'
 import { fromSnapshot, toSnapshot } from './sageSnapshot'
 import logo from './assets/aicom-logo.webp'
 import logoMark from './assets/aicom-mark.webp'
@@ -510,6 +510,16 @@ function Setup({ api, state, store, locale, setLocale, tr, refresh, loadStore, o
   )
 }
 
+function violationMessage(violation: LedgerViolation, tr: Translate) {
+  switch (violation.kind) {
+    case 'removed':
+    case 'changed': return tr(`La pièce ${violation.piece} est comptabilisée : elle ne peut plus être modifiée ni supprimée. Contre-passez-la.`, `Document ${violation.piece} is posted: it can no longer be changed or deleted. Reverse it instead.`)
+    case 'unbalanced': return tr(`La pièce ${violation.piece} n’est pas équilibrée : elle n’a pas été enregistrée.`, `Document ${violation.piece} does not balance: it was not saved.`)
+    case 'closedPeriod': return tr(`La période ${violation.period} est clôturée : rien n’a été enregistré.`, `Period ${violation.period} is closed: nothing was saved.`)
+    case 'closedYear': return tr(`L’exercice ${violation.period.slice(0, 4)} est clôturé définitivement : ses mois ne peuvent pas être rouverts.`, `Financial year ${violation.period.slice(0, 4)} is closed for good: its months cannot be reopened.`)
+  }
+}
+
 function Workspace({ api, state, store, setStore, locale, setLocale, tr, refresh, loadStore, onAction, onSignOut }: {
   api: DesktopApi; state: DesktopState; store: Store; setStore: Dispatch<SetStateAction<Store>>; locale: Locale; setLocale: (locale: Locale) => void; tr: Translate
   refresh: () => Promise<DesktopState>; loadStore: () => Promise<void>; onAction: (action: string, record: string) => void; onSignOut: () => Promise<void>
@@ -537,6 +547,18 @@ function Workspace({ api, state, store, setStore, locale, setLocale, tr, refresh
   function notify(message: string) {
     setToast(message)
     window.setTimeout(() => setToast(''), 3200)
+  }
+
+  // Every change made from the screens goes through the OHADA checks on posted entries; a change that breaks them is not kept.
+  // The screens already prevent these cases, so this is a safety net; an alert, because a screen's own toast would follow and hide it.
+  function applyStore(next: SetStateAction<Store>) {
+    const value = typeof next === 'function' ? next(store) : next
+    const violation = ledgerViolation(store, value)
+    if (violation) {
+      window.alert(violationMessage(violation, tr))
+      return
+    }
+    setStore(value)
   }
 
   async function reconnect() {
@@ -624,9 +646,9 @@ function Workspace({ api, state, store, setStore, locale, setLocale, tr, refresh
 
           {section === 'audit' && <AuditSection api={api} tr={tr} locale={locale} revision={store} />}
           <Suspense fallback={<div className="screen-loading"><LoaderCircle className="spin-icon" size={20} /></div>}>
-          {activeModule && <SageModules module={activeModule.id} initialActivity={focus} admin={state.auth.user?.role === 'admin'} locale={locale} store={store} setStore={setStore} money={money} notify={notify} audit={onAction} onModule={(id) => go(id)}
+          {activeModule && <SageModules module={activeModule.id} initialActivity={focus} admin={state.auth.user?.role === 'admin'} locale={locale} store={store} setStore={applyStore} money={money} notify={notify} audit={onAction} onModule={(id) => go(id)}
             savePdf={(name) => { void api.savePdf(name).then((file) => { if (file) notify(tr(`PDF enregistré : ${file}`, `PDF saved: ${file}`)) }) }} />}
-          {activeWorkspace && activeWorkspace.id !== 'audit' && <div className="sg-module"><FinanceView section={activeWorkspace.id} admin={state.auth.user?.role === 'admin'} store={store} apply={setStore} tr={tr} money={money} day={day} notify={notify} audit={onAction} go={go} savePdf={(name) => api.savePdf(name)} /></div>}
+          {activeWorkspace && activeWorkspace.id !== 'audit' && <div className="sg-module"><FinanceView section={activeWorkspace.id} admin={state.auth.user?.role === 'admin'} store={store} apply={applyStore} tr={tr} money={money} day={day} notify={notify} audit={onAction} go={go} savePdf={(name) => api.savePdf(name)} /></div>}
           </Suspense>
           <footer className="page-footer sg-noprint"><span><ShieldCheck size={13} />{tr('Données enregistrées dans votre compte Google', 'Data saved in your Google account')}</span><span>AICOM · v{state.version}</span></footer>
         </div>
@@ -817,6 +839,26 @@ function AuditView({ api, tr, locale, revision }: { api: DesktopApi; tr: Transla
   )
 }
 
+/** The details printed on invoices; each field is saved when the user leaves it. */
+function CompanyInfoForm({ store, tr, onStore }: { store: Store; tr: Translate; onStore: (next: Store, action: string) => void }) {
+  const [info, setInfo] = useState<CompanyInfo>(store.companyInfo)
+  const taxIdLabel = countries.find((item) => item.code === store.country)?.taxIdLabel ?? 'NIF'
+  const fields: [keyof CompanyInfo, string][] = [
+    ['address', tr('Adresse', 'Address')], ['city', tr('Ville', 'City')], ['phone', tr('Téléphone', 'Phone')], ['email', 'E-mail'],
+    ['taxId', taxIdLabel], ['rccm', 'RCCM'], ...(store.country === 'CD' ? [['nationalId', tr('Identification nationale', 'National ID')]] satisfies [keyof CompanyInfo, string][] : []),
+    ['taxRegime', tr('Régime fiscal', 'Tax regime')], ['taxOffice', tr('Centre des impôts', 'Tax office')], ['bank', tr('Banque et RIB', 'Bank account')],
+  ]
+  const commit = () => { if (fields.some(([key]) => info[key] !== store.companyInfo[key])) onStore({ ...store, companyInfo: { ...info } }, 'Changed company settings') }
+  return (
+    <>
+      <p className="dk-note">{tr('Ces informations sont imprimées sur les factures, comme la loi l’exige.', 'These details are printed on invoices, as the law requires.')}</p>
+      <div className="sg-form dk-inline-form">
+        {fields.map(([key, label]) => <label key={key}>{label}<input value={info[key]} maxLength={160} onChange={(event) => setInfo({ ...info, [key]: event.target.value })} onBlur={commit} /></label>)}
+      </div>
+    </>
+  )
+}
+
 function SettingsDialog({ api, state, store, tr, locale, notify, refresh, loadStore, onStore, onClose }: {
   api: DesktopApi; state: DesktopState; store: Store; tr: Translate; locale: Locale; notify: (message: string) => void
   refresh: () => Promise<DesktopState>; loadStore: () => Promise<void>; onStore: (next: Store, action: string) => void; onClose: () => void
@@ -860,6 +902,7 @@ function SettingsDialog({ api, state, store, tr, locale, notify, refresh, loadSt
             <label>{tr('TVA par défaut', 'Default VAT')}<select value={String(store.defaultVat)} onChange={(event) => onStore({ ...store, defaultVat: Number(event.target.value) }, 'Changed company settings')}>{Array.from(new Set([...vatRatesOf(store).map(String), String(store.defaultVat)])).map((rate) => <option key={rate} value={rate}>{rate === '0' ? tr('Sans TVA (0 %)', 'No VAT (0%)') : `${rate} %`}</option>)}</select></label>
           </div>
           <p className="dk-note">{tr('Pays', 'Country')} : {countries.find((item) => item.code === store.country)?.[locale === 'fr' ? 'fr' : 'en'] ?? '—'} · {tr('Plan comptable', 'Chart of accounts')} : {store.chart === 'syscohada' ? tr('SYSCOHADA révisé', 'Revised SYSCOHADA') : tr('plan comptable général français', 'French general chart')}</p>
+          <CompanyInfoForm store={store} tr={tr} onStore={onStore} />
           <p className="dk-note">{tr('La devise change seulement l’affichage des montants. Le taux de TVA s’applique aux nouveaux articles et documents, pas à ceux déjà enregistrés.', 'The currency only changes how amounts are displayed. The VAT rate applies to new items and documents, not to those already saved.')}</p>
 
           <h3><Cloud size={14} />{tr('Compte Google et synchronisation', 'Google account and sync')}</h3>

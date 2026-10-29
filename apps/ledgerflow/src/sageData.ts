@@ -9,7 +9,8 @@ export type Activity = { id: string; sage: string; fr: string; en: string; optio
 export type ActivityGroup = { sage: string; fr: string; en: string; activities: Activity[] }
 export type SageModule = { id: ModuleId; sage: string; fr: string; en: string; groups: ActivityGroup[] }
 
-export type Client = { code: string; name: string; city: string; email: string }
+/** `taxId` (NIU or NIF) and `address` are printed on invoices; business customers must have them. */
+export type Client = { code: string; name: string; city: string; email: string; taxId?: string; address?: string }
 export type Supplier = { code: string; name: string; city: string }
 export type Article = { ref: string; name: string; family: string; cost: number; price: number; vat: number; stock: number }
 export type DocLine = { ref: string; qty: number; price: number; vat: number }
@@ -37,11 +38,21 @@ export type SupplierInvoice = { id: string; number: string; supplier: string; da
 /** Line of a bank statement; `piece` is set once it has been posted to the bank journal. */
 export type BankLine = { id: string; date: string; label: string; amount: number; piece?: string }
 
+/**
+ * Company details printed on invoices, as the tax codes of the OHADA states require them: tax identifier (NIU in
+ * Cameroon and Congo, NIF elsewhere), trade register number (RCCM), tax regime and office, address and bank account.
+ * `nationalId` is the DR Congo identification nationale.
+ */
+export type CompanyInfo = { address: string; city: string; phone: string; email: string; taxId: string; rccm: string; nationalId: string; taxRegime: string; taxOffice: string; bank: string }
+
+export const emptyCompanyInfo: CompanyInfo = { address: '', city: '', phone: '', email: '', taxId: '', rccm: '', nationalId: '', taxRegime: '', taxOffice: '', bank: '' }
+
 /** Chart of accounts: SYSCOHADA (OHADA states) or the French PCG, kept for companies created before SYSCOHADA support. */
 export type ChartId = 'syscohada' | 'pcg'
 
 export type Store = {
   company: string
+  companyInfo: CompanyInfo
   /** ISO country code of the company (CM, GA, …); empty for companies outside the supported countries. */
   country: string
   chart: ChartId
@@ -157,14 +168,18 @@ export const sageModules: SageModule[] = [
 export type AccountRole = 'suppliers' | 'clients' | 'vatDeductible' | 'vatCollected' | 'bank' | 'cash' | 'purchases' | 'sales'
 /** Accounts used by the sample company for its opening capital and typical expenses. */
 type SampleRole = 'capital' | 'office' | 'subcontracting' | 'advertising' | 'bankFees'
-/** `prefixes` group the accounts read by reports: every VAT collected or deductible sub-account, every bank account. */
-type Chart = { roles: Record<AccountRole, string>; prefixes: { vatCollected: string; vatDeductible: string; bank: string }; sample: Record<SampleRole, string>; accounts: Account[] }
+/**
+ * `prefixes` group the accounts read by reports: every VAT collected or deductible sub-account, every bank account,
+ * and the accounts kept per customer or supplier (open items, lettrage, reminders).
+ */
+type Chart = { roles: Record<AccountRole, string>; prefixes: { vatCollected: string; vatDeductible: string; bank: string; clients: string[]; suppliers: string[] }; sample: Record<SampleRole, string>; accounts: Account[] }
 
 export const charts: Record<ChartId, Chart> = {
   // Système comptable OHADA révisé (in force since 2018 in all OHADA member states).
   syscohada: {
     roles: { suppliers: '401100', clients: '411100', vatDeductible: '445200', vatCollected: '443100', bank: '521100', cash: '571100', purchases: '601100', sales: '701100' },
-    prefixes: { vatCollected: '443', vatDeductible: '445', bank: '52' },
+    // Class 40 and 41 hold every supplier and customer sub-account (4011, 408, 409, 416, 418, 419…); 481 are suppliers of fixed assets.
+    prefixes: { vatCollected: '443', vatDeductible: '445', bank: '52', clients: ['41'], suppliers: ['40', '481'] },
     sample: { capital: '101300', office: '605500', subcontracting: '621000', advertising: '627000', bankFees: '631000' },
     accounts: [
       { number: '101300', label: 'Capital souscrit, appelé, versé, non amorti' },
@@ -193,7 +208,7 @@ export const charts: Record<ChartId, Chart> = {
   },
   pcg: {
     roles: { suppliers: '401000', clients: '411000', vatDeductible: '445660', vatCollected: '445710', bank: '512000', cash: '531000', purchases: '607000', sales: '707000' },
-    prefixes: { vatCollected: '4457', vatDeductible: '4456', bank: '512' },
+    prefixes: { vatCollected: '4457', vatDeductible: '4456', bank: '512', clients: ['41'], suppliers: ['40'] },
     sample: { capital: '101300', office: '606400', subcontracting: '611200', advertising: '623100', bankFees: '627000' },
     accounts: [
       { number: '101300', label: 'Capital souscrit' },
@@ -220,20 +235,25 @@ export const accountsOf = (store: Pick<Store, 'chart'>) => chartOf(store).roles
 /** VAT rates offered for a company: those of its country, or the former fixed list for companies without one. */
 export const vatRatesOf = (store: Pick<Store, 'country'>) => countries.find((country) => country.code === store.country)?.vat ?? [0, 5.5, 10, 18, 19.25, 20]
 
-export type Country = { code: string; fr: string; en: string; currency: string; chart: ChartId; vat: number[]; defaultVat: number; cities: string[] }
+/**
+ * `vatSurtax`: a tax included in the VAT rate and declared on its own line, as a percentage of the principal VAT
+ * (Cameroon's 19.25 % is 17.5 % plus 10 % of it for the communes). `vatDueDay`: day of the next month by which the
+ * monthly return is filed and paid.
+ */
+export type Country = { code: string; fr: string; en: string; currency: string; chart: ChartId; vat: number[]; defaultVat: number; cities: string[]; vatSurtax?: { label: string; rate: number }; vatDueDay?: number; taxIdLabel: string }
 
 /**
- * Central African OHADA states. VAT rates are the usual ones and must be confirmed against each year's finance law;
- * any other rate can still be set per item.
+ * Central African OHADA states. VAT rates and filing days are the usual ones and must be confirmed against each year's
+ * finance law; any other rate can still be set per item.
  */
 export const countries: Country[] = [
-  { code: 'CM', fr: 'Cameroun', en: 'Cameroon', currency: 'XAF', chart: 'syscohada', vat: [0, 19.25], defaultVat: 19.25, cities: ['Douala', 'Yaoundé', 'Bafoussam'] },
-  { code: 'GA', fr: 'Gabon', en: 'Gabon', currency: 'XAF', chart: 'syscohada', vat: [0, 5, 10, 18], defaultVat: 18, cities: ['Libreville', 'Port-Gentil', 'Franceville'] },
-  { code: 'CG', fr: 'Congo', en: 'Republic of the Congo', currency: 'XAF', chart: 'syscohada', vat: [0, 5, 18, 18.9], defaultVat: 18, cities: ['Brazzaville', 'Pointe-Noire', 'Dolisie'] },
-  { code: 'TD', fr: 'Tchad', en: 'Chad', currency: 'XAF', chart: 'syscohada', vat: [0, 9, 18], defaultVat: 18, cities: ['N’Djaména', 'Moundou', 'Abéché'] },
-  { code: 'CF', fr: 'Centrafrique', en: 'Central African Republic', currency: 'XAF', chart: 'syscohada', vat: [0, 5, 19], defaultVat: 19, cities: ['Bangui', 'Berbérati', 'Bambari'] },
-  { code: 'GQ', fr: 'Guinée équatoriale', en: 'Equatorial Guinea', currency: 'XAF', chart: 'syscohada', vat: [0, 6, 15], defaultVat: 15, cities: ['Malabo', 'Bata', 'Ebebiyín'] },
-  { code: 'CD', fr: 'RD Congo', en: 'DR Congo', currency: 'CDF', chart: 'syscohada', vat: [0, 8, 16], defaultVat: 16, cities: ['Kinshasa', 'Lubumbashi', 'Goma'] },
+  { code: 'CM', fr: 'Cameroun', en: 'Cameroon', currency: 'XAF', chart: 'syscohada', vat: [0, 19.25], defaultVat: 19.25, cities: ['Douala', 'Yaoundé', 'Bafoussam'], vatSurtax: { label: 'Centimes additionnels communaux (CAC)', rate: 10 }, vatDueDay: 15, taxIdLabel: 'NIU' },
+  { code: 'GA', fr: 'Gabon', en: 'Gabon', currency: 'XAF', chart: 'syscohada', vat: [0, 5, 10, 18], defaultVat: 18, cities: ['Libreville', 'Port-Gentil', 'Franceville'], vatDueDay: 20, taxIdLabel: 'NIF' },
+  { code: 'CG', fr: 'Congo', en: 'Republic of the Congo', currency: 'XAF', chart: 'syscohada', vat: [0, 5, 18, 18.9], defaultVat: 18, cities: ['Brazzaville', 'Pointe-Noire', 'Dolisie'], taxIdLabel: 'NIU' },
+  { code: 'TD', fr: 'Tchad', en: 'Chad', currency: 'XAF', chart: 'syscohada', vat: [0, 9, 18], defaultVat: 18, cities: ['N’Djaména', 'Moundou', 'Abéché'], taxIdLabel: 'NIF' },
+  { code: 'CF', fr: 'Centrafrique', en: 'Central African Republic', currency: 'XAF', chart: 'syscohada', vat: [0, 5, 19], defaultVat: 19, cities: ['Bangui', 'Berbérati', 'Bambari'], taxIdLabel: 'NIF' },
+  { code: 'GQ', fr: 'Guinée équatoriale', en: 'Equatorial Guinea', currency: 'XAF', chart: 'syscohada', vat: [0, 6, 15], defaultVat: 15, cities: ['Malabo', 'Bata', 'Ebebiyín'], taxIdLabel: 'NIF' },
+  { code: 'CD', fr: 'RD Congo', en: 'DR Congo', currency: 'CDF', chart: 'syscohada', vat: [0, 8, 16], defaultVat: 16, cities: ['Kinshasa', 'Lubumbashi', 'Goma'], taxIdLabel: 'NIF' },
 ]
 
 const digitsCache = new Map<string, number>()
@@ -271,7 +291,14 @@ export const round2 = (value: number) => roundTo(value, 2)
 /** Rounds an amount to what the company's currency can actually carry (whole francs in FCFA). */
 export const roundAmount = (store: Pick<Store, 'currency'>, value: number) => roundTo(value, currencyDigits(store.currency))
 export const movesStock = (type: SalesDocType) => type === 'livraison' || type === 'facture' || type === 'ticket'
-export const isTiersAccount = (account: string) => account.startsWith('401') || account.startsWith('411')
+export type TiersKind = 'clients' | 'suppliers'
+/** Whether an account is kept per customer, per supplier, or neither, according to the company's chart. */
+export function tiersKind(store: Pick<Store, 'chart'>, account: string): TiersKind | undefined {
+  const { clients, suppliers } = chartOf(store).prefixes
+  if (clients.some((prefix) => account.startsWith(prefix))) return 'clients'
+  if (suppliers.some((prefix) => account.startsWith(prefix))) return 'suppliers'
+}
+export const isTiersAccount = (store: Pick<Store, 'chart'>, account: string) => tiersKind(store, account) !== undefined
 export const nextSalesType = (type: SalesDocType): SalesDocType | undefined => salesChain[salesChain.indexOf(type) + 1 || salesChain.length]
 
 export function isoDate(date = new Date()) {
@@ -305,7 +332,7 @@ export function tiersName(store: Store, code?: string) {
 // Balance of a third party on its collective account: positive means the customer owes us / we owe the supplier.
 export function tiersBalance(entries: Entry[], account: string, tiers: string) {
   const balance = entries.filter((entry) => entry.account === account && entry.tiers === tiers).reduce((sum, entry) => sum + entry.debit - entry.credit, 0)
-  return round2(account.startsWith('40') ? -balance : balance)
+  return round2(account.startsWith('40') || account.startsWith('48') ? -balance : balance)
 }
 
 /** An item that appears in a document, a bill of materials or a production order cannot be deleted without breaking them. */
@@ -347,6 +374,59 @@ export function reversePiece(store: Store, piece: string, date: string): Store {
     // A bank line posted through the cancelled piece goes back to the lines waiting to be posted.
     bankLines: next.bankLines.map((line) => line.piece === piece ? { ...line, piece: undefined } : line),
   }
+}
+
+export type LedgerViolation =
+  | { kind: 'changed' | 'removed' | 'unbalanced'; piece: string }
+  | { kind: 'closedPeriod' | 'closedYear'; period: string }
+
+/** Fields of a posted line that stay as they were: only the lettering code may be added or removed afterwards. */
+const frozenFields = ['piece', 'journal', 'date', 'account', 'tiers', 'label', 'debit', 'credit', 'due', 'reverses'] as const
+
+/**
+ * The OHADA rules on posted entries, checked on every change before it is kept: a line already posted is never changed
+ * nor removed (it is cancelled by a reversing piece), every new piece balances, nothing is posted into a locked month,
+ * and a month of a financial year closed at year end cannot be reopened.
+ */
+export function ledgerViolation(before: Store, after: Store): LedgerViolation | undefined {
+  const kept = new Map(after.entries.map((entry) => [entry.id, entry]))
+  for (const entry of before.entries) {
+    const now = kept.get(entry.id)
+    if (!now) return { kind: 'removed', piece: entry.piece }
+    if (frozenFields.some((field) => now[field] !== entry[field])) return { kind: 'changed', piece: entry.piece }
+  }
+  const known = new Set(before.entries.map((entry) => entry.id))
+  const added = after.entries.filter((entry) => !known.has(entry.id))
+  const closed = new Set(before.closedPeriods)
+  const locked = added.find((entry) => closed.has(entry.date.slice(0, 7)))
+  if (locked) return { kind: 'closedPeriod', period: locked.date.slice(0, 7) }
+  const pieces = new Map<string, number>()
+  for (const entry of added) pieces.set(entry.piece, (pieces.get(entry.piece) ?? 0) + entry.debit - entry.credit)
+  const tolerance = 10 ** -currencyDigits(after.currency) / 2
+  for (const [piece, balance] of pieces) if (Math.abs(balance) >= tolerance) return { kind: 'unbalanced', piece }
+  const reopened = before.closedPeriods.find((month) => !after.closedPeriods.includes(month) && before.yearEnd[month.slice(0, 4)]?.closing)
+  if (reopened) return { kind: 'closedYear', period: reopened }
+}
+
+/**
+ * Breaks in the numbering of pieces: for each series (a journal's manual pieces, invoices, tickets…), the numbers missing
+ * between the first and the last one. Each number is the series prefix followed by digits, as `nextNumber` makes them.
+ */
+export function numberingGaps(store: Store): string[] {
+  const series = new Map<string, { width: number; numbers: Set<number> }>()
+  for (const piece of new Set(store.entries.map((entry) => entry.piece))) {
+    const match = /^(.*?)(\d+)$/.exec(piece)
+    if (!match) continue
+    const item = series.get(match[1]) ?? { width: match[2].length, numbers: new Set<number>() }
+    item.numbers.add(Number(match[2]))
+    series.set(match[1], item)
+  }
+  const gaps: string[] = []
+  for (const [prefix, { width, numbers }] of series) {
+    const sorted = [...numbers].sort((a, b) => a - b)
+    for (let number = sorted[0] + 1; number < sorted[sorted.length - 1]; number += 1) if (!numbers.has(number)) gaps.push(`${prefix}${String(number).padStart(width, '0')}`)
+  }
+  return gaps
 }
 
 function moveStock(articles: Article[], lines: DocLine[], direction: 1 | -1) {
@@ -453,7 +533,7 @@ export function autoLetter(store: Store): Store {
 
   const groups = new Map<string, Entry[]>()
   for (const entry of store.entries) {
-    if (entry.letter || !entry.tiers || !isTiersAccount(entry.account)) continue
+    if (entry.letter || !entry.tiers || !isTiersAccount(store, entry.account)) continue
     const key = `${entry.account}|${entry.tiers}`
     groups.set(key, [...(groups.get(key) ?? []), entry])
   }
@@ -552,6 +632,7 @@ export type CompanySetup = { currency?: string; defaultVat?: number; chart?: Cha
 export function createEmptyStore(company: string, { currency = 'EUR', defaultVat = 20, chart = 'pcg', country = '' }: CompanySetup = {}): Store {
   return {
     company,
+    companyInfo: { ...emptyCompanyInfo },
     country,
     chart,
     currency,

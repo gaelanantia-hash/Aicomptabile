@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { approveSupplierInvoice, cashForecast } from '../src/financeData.ts'
-import { accountsOf, countries, createEmptyStore, createStore, docTotals, saveSalesDoc, setupFor, tiersBalance } from '../src/sageData.ts'
+import { approveSupplierInvoice, cashForecast, openItems, suggestBankMatch } from '../src/financeData.ts'
+import { accountsOf, autoLetter, round2, countries, createEmptyStore, createStore, docTotals, isTiersAccount, postPiece, saveSalesDoc, setupFor, tiersBalance, tiersKind } from '../src/sageData.ts'
 import { fromSnapshot, toSnapshot } from '../src/sageSnapshot.ts'
-import { balanceSheet, incomeStatement, type StatementLine } from '../src/syscohada.ts'
+import { balanceSheet, cashFlowStatement, incomeStatement, type StatementLine } from '../src/syscohada.ts'
 
 const cameroon = countries.find((country) => country.code === 'CM')!
 
@@ -50,6 +50,22 @@ test('approving a supplier invoice posts to SYSCOHADA VAT and supplier accounts'
   assert.deepEqual(next.entries.slice(-3).map((entry) => entry.account), ['621000', '445200', '401100'])
 })
 
+test('every customer and supplier sub-account of the chart is followed per party, not only 401 and 411', () => {
+  const store = { ...createEmptyStore('Ets Mbarga', setupFor(cameroon)), clients: [{ code: 'C0001', name: 'Client', city: 'Douala', email: '' }], suppliers: [{ code: 'F0001', name: 'Garage', city: 'Douala' }] }
+  assert.deepEqual(['4111', '4161', '4191', '4011', '4081', '4812', '521100', '6011'].map((account) => tiersKind(store, account)), ['clients', 'clients', 'clients', 'suppliers', 'suppliers', 'suppliers', undefined, undefined])
+  // On the French chart 481 is not a supplier account.
+  assert.equal(isTiersAccount({ chart: 'pcg' }, '481000'), false)
+  let next = postPiece(store, 'VTE', '2026-09-01', 'Facture', [{ account: '411100', tiers: 'C0001', debit: 5000, credit: 0, due: '2026-09-30' }, { account: '701100', debit: 0, credit: 5000 }])
+  next = postPiece(next, 'OD', '2026-10-01', 'Client douteux', [{ account: '416100', tiers: 'C0001', debit: 5000, credit: 0, due: '2026-10-31' }, { account: '411100', tiers: 'C0001', debit: 0, credit: 5000 }])
+  next = postPiece(next, 'ACH', '2026-10-02', 'Camion', [{ account: '245100', debit: 9000, credit: 0 }, { account: '481200', tiers: 'F0001', debit: 0, credit: 9000, due: '2026-11-15' }])
+  assert.deepEqual(openItems(next, 'clients').map((item) => [item.entry.account, item.amount]), [['416100', 5000]])
+  assert.deepEqual(openItems(next, 'suppliers').map((item) => [item.entry.account, item.amount]), [['481200', 9000]])
+  assert.equal(tiersBalance(next.entries, '481200', 'F0001'), 9000)
+  assert.equal(suggestBankMatch(next, { id: 'BK1', date: '2026-11-15', label: 'VIR GARAGE', amount: -9000 })?.account, '481200')
+  next = postPiece(next, 'BQ', '2026-11-15', 'Règlement camion', [{ account: '481200', tiers: 'F0001', debit: 9000, credit: 0 }, { account: '521100', debit: 0, credit: 9000 }])
+  assert.ok(autoLetter(next).entries.filter((entry) => entry.account === '481200').every((entry) => entry.letter))
+})
+
 test('chart and country survive saving; data saved before them open on the French chart', () => {
   const store = fromSnapshot(JSON.parse(JSON.stringify(toSnapshot(createEmptyStore('X', setupFor(cameroon))))))
   assert.deepEqual([store.chart, store.country, store.currency], ['syscohada', 'CM', 'XAF'])
@@ -70,6 +86,9 @@ test('the SYSCOHADA balance sheet balances and carries the income statement resu
     assert.ok(total(assets, 'BZ') > 0)
     const income = incomeStatement(store, year)
     assert.equal(total(liabilities, 'CJ') + total(liabilities, 'CH'), income.result)
+    const flows = cashFlowStatement(store, year)
+    assert.equal(flows.gap, 0, country.code)
+    assert.equal(total(flows.lines, 'ZH'), round2(total(assets, 'BT') - total(liabilities, 'DT')), country.code)
   }
 })
 

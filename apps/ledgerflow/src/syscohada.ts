@@ -207,3 +207,95 @@ export function balanceSheet(store: Pick<Store, 'entries'>, year: number) {
     ],
   }
 }
+
+/** Accounts holding cash, on either side of the balance sheet (BQ, BR, BS and DQ, DR). */
+const treasuryPrefixes = ['50', '51', '52', '53', '54', '55', '56', '57', '58']
+/** Charges and income that move no cash: allowances to and releases of depreciation and provisions. */
+const allowancePrefixes = ['659', '681', '691', '697', '851', '852', '853', '854', '858']
+const releasePrefixes = ['759', '791', '797', '798', '799', '861', '862', '863', '864', '865', '868']
+/** Current receivables and payables kept out of the working capital lines because another line of the statement carries them. */
+const notWorkingCapital = ['465', '481', '482', '484', '485', '488', '49']
+
+const startsWithAny = (account: string, prefixes: string[]) => prefixes.some((prefix) => account.startsWith(prefix))
+
+/**
+ * Tableau des flux de trésorerie of the revised SYSCOHADA (it replaced the TAFIRE in 2018), indirect method: from the
+ * self-financing capacity (CAFG) through working capital, investment and financing to the change in net cash.
+ * ZH is checked against the cash on the balance sheet; `gap` is what the lines could not explain (0 for ordinary books),
+ * for instance a transfer between two fixed-asset accounts, which counts as an acquisition.
+ */
+export function cashFlowStatement(store: Pick<Store, 'entries'>, year: number) {
+  const before = balances(store.entries.filter((entry) => yearOf(entry) < year))
+  const after = balances(store.entries.filter((entry) => yearOf(entry) <= year))
+  const inYear = store.entries.filter((entry) => yearOf(entry) === year && entry.origin !== 'closing')
+  const movements = (prefixes: string[], side: 'debit' | 'credit') => round2(inYear.filter((entry) => startsWithAny(entry.account, prefixes)).reduce((total, entry) => total + entry[side], 0))
+  const net = (prefixes: string[]) => round2(movements(prefixes, 'debit') - movements(prefixes, 'credit'))
+  const balanceOf = (map: Map<string, number>, accept: (account: string) => boolean) => [...map].filter(([account]) => accept(account)).reduce((total, [, balance]) => total + balance, 0)
+  const change = (accept: (account: string) => boolean) => round2(balanceOf(after, accept) - balanceOf(before, accept))
+  const isTreasury = (account: string) => startsWithAny(account, treasuryPrefixes)
+  const workingCapital = (account: string) => account.startsWith('4') && !startsWithAny(account, notWorkingCapital)
+  const sideTotal = (map: Map<string, number>, sign: 1 | -1) => [...map].filter(([account]) => workingCapital(account)).reduce((total, [, balance]) => total + Math.max(sign * balance, 0), 0)
+
+  const za = round2(balanceOf(before, isTreasury))
+  // CAFG: net result, plus allowances, minus releases, without the gains on disposals (their proceeds are an investment flow).
+  const fa = round2(incomeStatement(store, year).result + net(allowancePrefixes) + net(releasePrefixes) + net(['81']) + net(['82']))
+  const fb = round2(-change((account) => startsWithAny(account, ['484', '485', '488'])))
+  const fc = round2(-change((account) => account.startsWith('3') && !account.startsWith('39')))
+  const fd = round2(-(sideTotal(after, 1) - sideTotal(before, 1)))
+  const fe = round2(sideTotal(after, -1) - sideTotal(before, -1))
+  const zb = round2(fa + fb + fc + fd + fe)
+  // Acquisitions are paid when they are, not when they are booked: unpaid ones wait on 481/482.
+  const ff = round2(-movements(['21'], 'debit'))
+  const fg = round2(-movements(['22', '23', '24', '25'], 'debit') - change((account) => startsWithAny(account, ['481', '482'])))
+  const fh = round2(-movements(['26', '27'], 'debit'))
+  const fi = round2(movements(['821', '822'], 'credit') - movements(['821', '822'], 'debit'))
+  const fj = round2(movements(['826'], 'credit') - movements(['826'], 'debit'))
+  const zc = round2(ff + fg + fh + fi + fj)
+  const capital = round2(-net(['101', '102', '103', '104', '105', '109']))
+  const fk = Math.max(capital, 0)
+  const fl = movements(['14'], 'credit')
+  const fm = Math.min(capital, 0)
+  const fn = round2(-movements(['465'], 'debit'))
+  const zd = round2(fk + fl + fm + fn)
+  const fo = movements(['16'], 'credit')
+  const fp = movements(['17', '18'], 'credit')
+  const fq = round2(-movements(['16', '17', '18'], 'debit'))
+  const ze = round2(fo + fp + fq)
+  const zf = round2(zd + ze)
+  const zg = round2(zb + zc + zf)
+  const zh = round2(za + zg)
+  const closing = round2(balanceOf(after, isTreasury))
+
+  const line = (ref: string, label: string, amount: number): StatementLine => ({ ref, label, amount })
+  const total = (ref: string, label: string, amount: number): StatementLine => ({ ref, label, amount, total: true })
+  return {
+    lines: [
+      total('ZA', 'Trésorerie nette au 1er janvier', za),
+      line('FA', 'Capacité d’autofinancement globale (CAFG)', fa),
+      line('FB', '− Actif circulant HAO', fb),
+      line('FC', '− Variation des stocks', fc),
+      line('FD', '− Variation des créances', fd),
+      line('FE', '+ Variation du passif circulant', fe),
+      total('ZB', 'Flux de trésorerie provenant des activités opérationnelles', zb),
+      line('FF', '− Décaissements liés aux acquisitions d’immobilisations incorporelles', ff),
+      line('FG', '− Décaissements liés aux acquisitions d’immobilisations corporelles', fg),
+      line('FH', '− Décaissements liés aux acquisitions d’immobilisations financières', fh),
+      line('FI', '+ Encaissements liés aux cessions d’immobilisations incorporelles et corporelles', fi),
+      line('FJ', '+ Encaissements liés aux cessions d’immobilisations financières', fj),
+      total('ZC', 'Flux de trésorerie provenant des activités d’investissement', zc),
+      line('FK', '+ Augmentations de capital par apports nouveaux', fk),
+      line('FL', '+ Subventions d’investissement reçues', fl),
+      line('FM', '− Prélèvements sur le capital', fm),
+      line('FN', '− Dividendes versés', fn),
+      total('ZD', 'Flux de trésorerie provenant des capitaux propres', zd),
+      line('FO', '+ Emprunts', fo),
+      line('FP', '+ Autres dettes financières', fp),
+      line('FQ', '− Remboursements des emprunts et autres dettes financières', fq),
+      total('ZE', 'Flux de trésorerie provenant des capitaux étrangers', ze),
+      total('ZF', 'Flux de trésorerie provenant des activités de financement', zf),
+      total('ZG', 'VARIATION DE LA TRÉSORERIE NETTE DE LA PÉRIODE', zg),
+      total('ZH', 'Trésorerie nette au 31 décembre', zh),
+    ],
+    gap: round2(closing - zh),
+  }
+}

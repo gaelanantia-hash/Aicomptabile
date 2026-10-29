@@ -8,7 +8,7 @@ import {
   filterSupplierInvoices, monthlySales, openItems, overview, parseBankCsv, postBankLine, rejectSupplierInvoice, saveSupplierInvoice, suggestBankMatch, type ForecastWeek, type QualityIssue,
 } from './financeData'
 import { readInvoiceDocument } from './invoiceImport'
-import { chartOf, isoDate, isTiersAccount, round2, sageModules, tiersName, type ModuleId, type Store, type SupplierInvoice } from './sageData'
+import { chartOf, isoDate, isTiersAccount, round2, tiersKind, sageModules, tiersName, type ModuleId, type Store, type SupplierInvoice } from './sageData'
 import { downloadXlsx, type Sheet } from './xlsx'
 import './FinanceSections.css'
 
@@ -345,7 +345,8 @@ function BankSection({ store, apply, tr, money, day, notify, audit }: FinancePro
           {open.map((line) => {
             const match = suggestBankMatch(store, line)
             const picked = choice[line.id] ?? { account: '', tiers: '' }
-            const parties = picked.account.startsWith('411') ? store.clients : picked.account.startsWith('401') ? store.suppliers : []
+            const kind = tiersKind(store, picked.account)
+            const parties = kind ? store[kind] : []
             return (
               <div className="bank-row fin-bank-row" key={line.id}>
                 <span className="bank-date">{day(line.date)}</span>
@@ -370,7 +371,7 @@ function BankSection({ store, apply, tr, money, day, notify, audit }: FinancePro
                       {parties.map((party) => <option key={party.code} value={party.code}>{party.name}</option>)}
                     </select>}
                   </span>
-                  <button className="match-button" type="button" disabled={!picked.account || (isTiersAccount(picked.account) && !picked.tiers)} onClick={() => {
+                  <button className="match-button" type="button" disabled={!picked.account || (isTiersAccount(store, picked.account) && !picked.tiers)} onClick={() => {
                     if (closed(line.date)) return
                     apply(postBankLine(store, line.id, picked.account, picked.tiers || undefined))
                     audit('Posted bank line', `${line.id} · ${picked.account}`)
@@ -431,6 +432,10 @@ function CloseSection({ store, apply, tr, money, day, notify, audit, go, admin =
   function lock() {
     if (locked && !admin) {
       notify(tr('Seul un administrateur peut rouvrir une période verrouillée.', 'Only an administrator can reopen a locked period.'))
+      return
+    }
+    if (locked && store.yearEnd[month.slice(0, 4)]?.closing) {
+      notify(tr(`L’exercice ${month.slice(0, 4)} est clôturé définitivement : ce mois ne peut pas être rouvert.`, `Financial year ${month.slice(0, 4)} is closed for good: this month cannot be reopened.`))
       return
     }
     if (!locked && progress.done < progress.total && !window.confirm(tr('Toutes les tâches ne sont pas terminées. Verrouiller quand même la période ?', 'Not every task is done. Lock the period anyway?'))) return
@@ -572,8 +577,8 @@ function ForecastSection({ store, tr, money, day }: FinanceProps) {
           <tbody>{weeks.map((week) => <tr key={week.start}><td className="date-cell">{day(week.start)}</td><td className="sg-num">{week.inflow ? money(week.inflow) : ''}</td><td className="sg-num">{week.outflow ? money(week.outflow) : ''}</td><td className="sg-num"><strong>{money(week.balance)}</strong></td></tr>)}</tbody>
         </table></div>
         <div className="fin-open">
-          <span>{tr('Factures clients ouvertes', 'Open customer invoices')} : <strong>{openItems(store, '411').length}</strong></span>
-          <span>{tr('Factures fournisseurs ouvertes', 'Open supplier invoices')} : <strong>{openItems(store, '401').length}</strong></span>
+          <span>{tr('Factures clients ouvertes', 'Open customer invoices')} : <strong>{openItems(store, 'clients').length}</strong></span>
+          <span>{tr('Factures fournisseurs ouvertes', 'Open supplier invoices')} : <strong>{openItems(store, 'suppliers').length}</strong></span>
         </div>
       </Panel>
     </>

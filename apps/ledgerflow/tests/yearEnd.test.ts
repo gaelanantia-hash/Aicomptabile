@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { countries, createEmptyStore, createStore, postPiece, setupFor, type Store } from '../src/sageData.ts'
 import { fromSnapshot, toSnapshot } from '../src/sageSnapshot.ts'
-import { balanceSheet, incomeStatement, type StatementLine } from '../src/syscohada.ts'
+import { balanceSheet, cashFlowStatement, incomeStatement, type StatementLine } from '../src/syscohada.ts'
 import {
   assignResult, closeYear, depreciationAccount, depreciationSchedule, openingStock, postDepreciation, postInventory, registerAsset, yearEndStatus,
 } from '../src/yearEnd.ts'
@@ -100,4 +100,40 @@ test('the whole closing of the sample company keeps the books balanced, and surv
   assert.ok(status.depreciation && status.inventory && status.closing)
   const reloaded = fromSnapshot(JSON.parse(JSON.stringify(toSnapshot(store))))
   assert.deepEqual([reloaded.assets, reloaded.yearEnd], [store.assets, store.yearEnd])
+})
+
+test('the cash flow statement explains the change in cash, from the self-financing capacity to the closing cash', () => {
+  const cashOf = (store: Store, year: number) => store.entries.filter((entry) => Number(entry.date.slice(0, 4)) <= year && /^5[0-8]/.test(entry.account)).reduce((sum, entry) => sum + entry.debit - entry.credit, 0)
+  let store = company()
+  // Deductible VAT is a receivable (FD), collected VAT a payable (FE).
+  // A loan, a fixed asset half paid, a customer still owing, a supplier still owed and stock left at year end.
+  store = postPiece(store, 'OD', '2026-02-01', 'Emprunt', [{ account: '521100', debit: 4_000_000, credit: 0 }, { account: '162000', debit: 0, credit: 4_000_000 }])
+  store = registerAsset(store, { label: 'Camion', account: '245000', acquired: '2026-03-01', cost: 6_000_000, years: 5 }, 'supplier')
+  store = postPiece(store, 'BQ', '2026-04-01', 'Acompte camion', [{ account: '481200', debit: 2_500_000, credit: 0 }, { account: '521100', debit: 0, credit: 2_500_000 }])
+  store = postPiece(store, 'VTE', '2026-06-01', 'Facture', [{ account: '411100', tiers: 'C1', debit: 1_192_500, credit: 0 }, { account: '701100', debit: 0, credit: 1_000_000 }, { account: '443100', debit: 0, credit: 192_500 }])
+  store = postPiece(store, 'ACH', '2026-06-02', 'Facture', [{ account: '601100', debit: 500_000, credit: 0 }, { account: '445200', debit: 96_250, credit: 0 }, { account: '401100', tiers: 'F1', debit: 0, credit: 596_250 }])
+  store = postPiece(store, 'BQ', '2026-09-01', 'Remboursement', [{ account: '162000', debit: 800_000, credit: 0 }, { account: '521100', debit: 0, credit: 800_000 }])
+  store = postDepreciation(store, 2026)
+  store = postInventory(store, 2026, 700_000)
+  store = closeYear(store, 2026)
+
+  const flows = cashFlowStatement(store, 2026)
+  const line = (ref: string) => total(flows.lines, ref)
+  assert.equal(flows.gap, 0)
+  assert.equal(line('ZA'), 0)
+  assert.equal(line('ZH'), cashOf(store, 2026))
+  assert.equal(line('FA'), incomeStatement(store, 2026).result + depreciationSchedule(store.assets[0], 'XAF')[0].amount)
+  assert.deepEqual(['FC', 'FD', 'FE', 'FG', 'FK', 'FO', 'FQ'].map(line), [-700_000, -(1_192_500 + 96_250), 596_250 + 192_500, -2_500_000, 10_000_000, 4_000_000, -800_000])
+
+  // The next year: dividends voted and paid, the rest of the truck paid, the customer pays.
+  store = assignResult(store, 2026, '2027-06-30')
+  store = postPiece(store, 'OD', '2027-06-30', 'Dividendes', [{ account: '121000', debit: 300_000, credit: 0 }, { account: '465000', debit: 0, credit: 300_000 }])
+  store = postPiece(store, 'BQ', '2027-07-15', 'Dividendes', [{ account: '465000', debit: 300_000, credit: 0 }, { account: '521100', debit: 0, credit: 300_000 }])
+  store = postPiece(store, 'BQ', '2027-08-01', 'Solde camion', [{ account: '481200', debit: 3_500_000, credit: 0 }, { account: '521100', debit: 0, credit: 3_500_000 }])
+  store = postPiece(store, 'BQ', '2027-08-02', 'Client', [{ account: '521100', debit: 1_192_500, credit: 0 }, { account: '411100', tiers: 'C1', debit: 0, credit: 1_192_500 }])
+  const next = cashFlowStatement(store, 2027)
+  assert.equal(next.gap, 0)
+  assert.equal(total(next.lines, 'ZA'), cashOf(store, 2026))
+  assert.equal(total(next.lines, 'ZH'), cashOf(store, 2027))
+  assert.deepEqual(['FN', 'FG', 'FD'].map((ref) => total(next.lines, ref)), [-300_000, -3_500_000, 1_192_500])
 })

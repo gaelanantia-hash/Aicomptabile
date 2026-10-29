@@ -1,6 +1,6 @@
 import {
-  accountsOf, addDays, autoLetter, isTiersAccount, nextNumber, postPiece, round2,
-  type BankLine, type Entry, type Store, type SupplierInvoice,
+  accountsOf, addDays, autoLetter, isTiersAccount, nextNumber, postPiece, round2, tiersKind,
+  type BankLine, type Entry, type Store, type SupplierInvoice, type TiersKind,
 } from './sageData.ts'
 
 const period = (date: string) => date.slice(0, 7)
@@ -152,8 +152,8 @@ export function addBankLines(store: Store, lines: Omit<BankLine, 'id'>[]): Store
 export function suggestBankMatch(store: Store, line: BankLine): Entry | undefined {
   const value = Math.abs(line.amount)
   const candidates = store.entries.filter((entry) => entry.tiers && !entry.letter && (line.amount > 0
-    ? entry.account.startsWith('411') && entry.debit === value
-    : entry.account.startsWith('401') && entry.credit === value))
+    ? tiersKind(store, entry.account) === 'clients' && entry.debit === value
+    : tiersKind(store, entry.account) === 'suppliers' && entry.credit === value))
   const label = line.label.toUpperCase()
   return candidates.find((entry) => label.includes(entry.piece.toUpperCase())) ?? candidates[0]
 }
@@ -181,7 +181,7 @@ export function matchBankLine(store: Store, lineId: string, entryId: number): St
 /** Posts a bank line that settles no invoice (fees, interest, transfers) against the chosen account. */
 export function postBankLine(store: Store, lineId: string, account: string, tiers?: string): Store {
   const line = store.bankLines.find((item) => item.id === lineId)
-  if (!line || line.piece || !account || (isTiersAccount(account) && !tiers)) return store
+  if (!line || line.piece || !account || (isTiersAccount(store, account) && !tiers)) return store
   const value = Math.abs(line.amount)
   const counterpart = { account, tiers }
   const next = postPiece(store, 'BQ', line.date, line.label, line.amount > 0
@@ -195,18 +195,20 @@ export function postBankLine(store: Store, lineId: string, account: string, tier
 export type OpenItem = { entry: Entry; amount: number; due: string }
 
 /**
- * Unpaid customer invoices ('411') or supplier invoices ('401'), oldest due date first, with what is left to pay.
+ * Unpaid customer or supplier invoices, on every account the chart keeps per party, oldest due date first, with what is left to pay.
  * Payments not yet lettered are deducted from the same party's oldest invoices, so the result does not depend on lettrage being up to date.
  */
-export function openItems(store: Store, account: '411' | '401'): OpenItem[] {
-  const unlettered = store.entries.filter((entry) => entry.account.startsWith(account) && entry.tiers && !entry.letter)
-  const invoiced = (entry: Entry) => account === '411' ? entry.debit : entry.credit
+export function openItems(store: Store, kind: TiersKind): OpenItem[] {
+  const unlettered = store.entries.filter((entry) => entry.tiers && !entry.letter && tiersKind(store, entry.account) === kind)
+  const invoiced = (entry: Entry) => kind === 'clients' ? entry.debit : entry.credit
+  // Netted per account as well as per party: moving a debt from 411 to 416 (doubtful customer) does not pay it.
+  const key = (entry: Entry) => `${entry.account}|${entry.tiers}`
   const paid = new Map<string, number>()
-  for (const entry of unlettered) paid.set(entry.tiers!, round2((paid.get(entry.tiers!) ?? 0) + (account === '411' ? entry.credit : entry.debit)))
+  for (const entry of unlettered) paid.set(key(entry), round2((paid.get(key(entry)) ?? 0) + (kind === 'clients' ? entry.credit : entry.debit)))
   const items: OpenItem[] = []
   for (const entry of unlettered.filter((item) => invoiced(item) > 0).sort((a, b) => (a.due ?? a.date).localeCompare(b.due ?? b.date))) {
-    const settled = Math.min(paid.get(entry.tiers!) ?? 0, invoiced(entry))
-    paid.set(entry.tiers!, round2((paid.get(entry.tiers!) ?? 0) - settled))
+    const settled = Math.min(paid.get(key(entry)) ?? 0, invoiced(entry))
+    paid.set(key(entry), round2((paid.get(key(entry)) ?? 0) - settled))
     const amount = round2(invoiced(entry) - settled)
     if (amount > 0) items.push({ entry, amount, due: entry.due ?? entry.date })
   }
@@ -217,8 +219,8 @@ export function overview(store: Store, today: string) {
   const month = period(today)
   const previous = period(addDays(`${month}-01`, -1))
   const revenue = (target: string) => -balance(store.entries.filter((entry) => period(entry.date) === target), '7')
-  const receivables = openItems(store, '411')
-  const payables = openItems(store, '401')
+  const receivables = openItems(store, 'clients')
+  const payables = openItems(store, 'suppliers')
   return {
     revenue: revenue(month),
     previousRevenue: revenue(previous),
@@ -237,8 +239,8 @@ export type ForecastWeek = { start: string; inflow: number; outflow: number; bal
 
 /** Cash position week by week: today's cash, plus customer invoices and minus supplier invoices at their due date. Overdue items fall in the first week. */
 export function cashForecast(store: Store, today: string, weeks = 13): ForecastWeek[] {
-  const receivables = openItems(store, '411')
-  const payables = openItems(store, '401')
+  const receivables = openItems(store, 'clients')
+  const payables = openItems(store, 'suppliers')
   let running = balance(store.entries, '5')
   return Array.from({ length: weeks }, (_, index) => {
     const start = addDays(today, index * 7)

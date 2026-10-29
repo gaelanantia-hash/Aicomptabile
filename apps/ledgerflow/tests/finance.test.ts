@@ -130,7 +130,7 @@ test('the cash forecast adds receivables and subtracts payables at their due dat
   const later = approveSupplierInvoice(store, 'FR00001')
   const index = cashForecast(later, today).findIndex((week, position) => position > 0 && week.outflow === 4280)
   assert.equal(index, 3)
-  assert.equal(openItems(later, '401').length, 2)
+  assert.equal(openItems(later, 'suppliers').length, 2)
 })
 
 test('data quality lists incomplete and duplicate records', () => {
