@@ -19,5 +19,6 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["electron", "tests"]
+  "include": ["electron", "tests"],
+  "exclude": ["tests/ui"]
 }

@@ -2,7 +2,7 @@
 
 ## Cosa è verificato in automatico
 
-Comandi: `npm test` in `apps/ledgerflow` (75 test, di cui 12 su credenziali e storico degli accessi in `electron/auth.test.ts`) e in `apps/licensing` (12 test). Girano anche nella CI.
+Comandi: `npm test` in `apps/ledgerflow` (132 test di logica con `node --test`, di cui 12 su credenziali e storico degli accessi in `electron/auth.test.ts`, più 11 test delle schermate con Vitest; solo questi ultimi: `npm run test:ui`) e in `apps/licensing` (12 test). Girano anche nella CI.
 
 | Area | Cosa provano | File |
 |---|---|---|
@@ -15,6 +15,11 @@ Comandi: `npm test` in `apps/ledgerflow` (75 test, di cui 12 su credenziali e st
 | Licenze nell'app | Firma, PC diverso, scadenza, 14 giorni offline, revoca | `electron/license.test.ts` |
 | Servizio licenze | Attivazione, limite PC, rinnovo, revoca, scadenza, amministrazione protetta, aggiornamenti, rapporti d'errore, limite tentativi | `apps/licensing/src/app.test.ts` |
 | Excel | Archivio valido, numeri come numeri, caratteri speciali | `tests/sage.test.ts` |
+| Regole OHADA sulle scritture | Niente modifiche né cancellazioni dopo la registrazione, pièce in pareggio, niente scritture nei mesi chiusi, esercizio chiuso non riapribile, numerazione senza buchi | `tests/ledger.test.ts` |
+| SYSCOHADA | Conti clienti/fornitori (40, 41, 481), bilancio, conto economico, tableau des flux che torna con la cassa, chiusura dell'esercizio | `tests/syscohada.test.ts`, `tests/yearEnd.test.ts` |
+| IVA mensile | Dettaglio per aliquota, ripartizione TVA/CAC (Camerun), credito riportato, liquidazione mese per mese | `tests/vat.test.ts` |
+| Fatture | Importo in lettere, totali per aliquota, mentions obbligatorie mancanti | `tests/invoice.test.ts` |
+| Schermate (Vitest, browser simulato) | Vendita con fattura e stampa, fattura fornitore ricevuta e convalidata, chiusura mensile e dell'esercizio; ogni modifica passa dai controlli OHADA come nell'app | `tests/ui/*.test.tsx` |
 
 Questi test usano un **Google simulato** (`electron/testing/fakeGoogle.ts`): provano la logica dell'app, non il comportamento reale di Google.
 
