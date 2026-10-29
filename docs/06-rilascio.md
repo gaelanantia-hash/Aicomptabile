@@ -50,14 +50,84 @@ L'installer attuale **non è firmato**. Le conseguenze sono due, la seconda scop
 
 Gli aggiornamenti automatici, inoltre, non possono verificare l'editore.
 
-Opzioni:
+### Quale firma puoi comprare (verificato il 29 ottobre 2026)
 
-| Opzione | Note |
+| Opzione | Chi può | Costo e tempi | Note |
+|---|---|---|---|
+| **Azure Trusted Signing** (ora *Artifact Signing*) | Aziende registrate in **USA, Canada, Unione europea o Regno Unito**. I privati solo in USA e Canada | Abbonamento mensile basso; verifica dell'identità dell'azienda da parte di Microsoft (da qualche giorno a qualche settimana) | Microsoft chiedeva tre anni di storia fiscale: oggi le sue pagine si contraddicono, la decisione arriva alla verifica. Se rifiuta, il portale non sempre dice il motivo |
+| **Certificato OV** da un'autorità (Sectigo, DigiCert, Certum…) | Qualsiasi azienda registrata, anche in Camerun o in un altro paese CEMAC | Costo annuale più alto; la chiave sta su un token USB o in un servizio cloud dell'autorità | Va bene se l'editore non è un'azienda UE/USA/UK/Canada |
+
+**In pratica:** se la società che pubblica AICOM è registrata in Italia (o altrove nell'UE), prova prima Azure. Se è registrata in Africa centrale, compra un certificato OV.
+
+### Cosa fare con Azure Trusted Signing
+
+1. Nel portale Azure crea un account *Trusted Signing* (regione vicina, per esempio West Europe) e annota il suo **endpoint** (es. `https://weu.codesigning.azure.net`).
+2. Avvia la **verifica dell'identità** come organizzazione (*Public Trust*), con la ragione sociale esattamente come nel registro delle imprese.
+3. Quando è approvata, crea un **profilo di certificato** *Public Trust*.
+4. In Microsoft Entra ID registra un'applicazione (es. «aicom-release»), crea per lei un *client secret* e dalle il ruolo **Trusted Signing Certificate Profile Signer** sull'account (con il nuovo nome il portale può mostrarlo come *Artifact Signing Certificate Profile Signer*).
+5. In GitHub (*Settings → Secrets and variables → Actions*) inserisci:
+
+| Nome | Tipo | Valore |
+|---|---|---|
+| `AZURE_SIGNING_ENDPOINT` | variabile | endpoint del punto 1 |
+| `AZURE_SIGNING_ACCOUNT` | variabile | nome dell'account Trusted Signing |
+| `AZURE_SIGNING_PROFILE` | variabile | nome del profilo di certificato |
+| `AZURE_SIGNING_PUBLISHER` | variabile | ragione sociale **identica** a quella del certificato |
+| `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` | variabili | dell'applicazione del punto 4 |
+| `AZURE_CLIENT_SECRET` | segreto | il *client secret* del punto 4 |
+
+Per firmare dal PC con `scripts/publish-release.ps1`, imposta le stesse sette variabili d'ambiente prima di lanciarlo.
+
+### Cosa fare con un certificato OV
+
+Inserisci in GitHub i segreti `WINDOWS_CERTIFICATE` (il file `.pfx` in base64) e `WINDOWS_CERTIFICATE_PASSWORD`. Se la chiave sta su un token USB o in un servizio cloud dell'autorità, il `.pfx` non esiste: segui le istruzioni dell'autorità per `signtool` e dimmelo, va aggiunto un passaggio.
+
+### Come la build sceglie
+
+`npm run dist` lancia `scripts/dist.mjs`: se trova le quattro variabili `AZURE_SIGNING_*` firma con Azure, altrimenti con il certificato di `CSC_LINK`, altrimenti produce un installer non firmato e lo scrive nel log. Se manca solo una parte delle variabili Azure si ferma con un errore, per non pubblicare per sbaglio un installer non firmato.
+
+Dopo la prima versione firmata, il nome dell'editore non va più cambiato: gli aggiornamenti automatici controllano che il nuovo installer sia firmato dallo stesso editore.
+
+## Microsoft Store: la firma gratuita
+
+Lo Store firma gratis i pacchetti che pubblica: Windows li considera affidabili, quindi niente avviso SmartScreen, e Smart App Control dovrebbe lasciarli passare (da confermare con la prima versione pubblicata, installandola su questo PC, dove Smart App Control è attivo). La registrazione come sviluppatore è gratuita anche per le aziende (da maggio 2026).
+
+L'installer classico resta: lo Store è un secondo canale, consigliato a chi ha Smart App Control.
+
+### Differenze della versione Store
+
+- **Aggiornamenti**: li fa lo Store. Nella versione Store il nostro aggiornamento automatico è spento (`process.windowsStore` in `electron/main.ts`); l'avviso «nuova versione» apre la pagina *Download e aggiornamenti* dello Store invece di scaricare l'installer.
+- **Revisione**: ogni versione passa la certificazione di Microsoft, di solito qualche giorno. Pubblica sullo Store la stessa versione dell'installer.
+- **Dati sul PC**: Windows tiene i file della versione Store in una cartella sua. Se un cliente ha già l'installer classico, la versione Store all'inizio vede i dati esistenti, ma ciò che scrive resta suo. Meglio un solo canale per PC; i dati non si perdono comunque, perché sono sul Drive del cliente.
+- **Licenze**: invariate. Lo Store ammette che le app non di gioco vendano con un proprio sistema; AICOM nello Store è gratuito da scaricare e si attiva con la licenza come oggi.
+
+### Prima pubblicazione (tocca a te, una volta)
+
+1. **Account**: su storedeveloper.microsoft.com apri un account **azienda** con un account di lavoro Microsoft. Microsoft consiglia il numero D-U-N-S dell'azienda per approvare prima; la verifica dell'azienda può chiedere qualche giorno.
+2. **Nome**: in Partner Center crea una nuova app e **prenota il nome** «AICOM». Se è già preso, scegline uno vicino (per esempio «AICOM Comptabilité») e dimmelo: va cambiato anche nel pacchetto.
+3. **Identità**: in *Gestione prodotto → Identità del prodotto* copia i tre valori e mettili in GitHub come variabili (*Settings → Secrets and variables → Actions → Variables*):
+
+| Variabile | Valore in Partner Center |
 |---|---|
-| Azure Trusted Signing | Abbonamento mensile contenuto; richiede la verifica dell'identità dell'azienda; reputazione SmartScreen immediata |
-| Certificato OV/EV da un'autorità (Sectigo, DigiCert…) | Costo annuale; dal 2023 la chiave sta su token hardware o HSM cloud |
+| `STORE_IDENTITY_NAME` | `Package/Identity/Name` |
+| `STORE_PUBLISHER` | `Package/Identity/Publisher` (comincia con `CN=`) |
+| `STORE_PUBLISHER_NAME` | `Package/Properties/PublisherDisplayName` |
 
-Con un certificato `.pfx`, `electron-builder` firma da solo se trova le variabili `CSC_LINK` (file o base64) e `CSC_KEY_PASSWORD`. Il flusso `release.yml` le legge dai segreti `WINDOWS_CERTIFICATE` e `WINDOWS_CERTIFICATE_PASSWORD`. Per Azure Trusted Signing va aggiunta la sezione `win.azureSignOptions` in `package.json`.
+   Da quel momento ogni rilascio (tag `v…`) produce anche il pacchetto Store, scaricabile come *store-package* dalla pagina del flusso in GitHub Actions. Dal PC: imposta le stesse tre variabili e lancia `npm run dist:store`.
+4. **Invio**: in Partner Center crea un invio e compila:
+   - *Prezzi e disponibilità*: gratuito; mercati: i paesi dei clienti (Camerun, Gabon, Congo, Ciad, Centrafrica, Guinea equatoriale, RD Congo) ed eventualmente l'Italia;
+   - *Proprietà*: categoria *Business* (o *Produttività*), link all'informativa privacy (serve il dominio della 3.3);
+   - *Classificazione per età*: questionario (app di gestione, nessun contenuto sensibile);
+   - *Pacchetti*: carica il file `AICOM-Store-<versione>.appx`;
+   - *Funzionalità con restrizioni*: il pacchetto chiede `runFullTrust`, obbligatorio per le app desktop. Spiegazione: «AICOM is an Electron desktop application; runFullTrust is required to run it»;
+   - *Schede dello Store*: descrizione in francese, almeno uno screenshot (1366×768 o più), icona già nel pacchetto.
+5. Dopo la certificazione, **installa AICOM dallo Store su questo PC** e verifica che parta con Smart App Control attivo.
+
+### Pacchetto di prova senza Partner Center
+
+Senza le tre variabili, `npm run dist:store` produce un pacchetto con un'identità di prova (`AICOM.Test`). Windows lo installa anche se non è firmato con `Add-AppxPackage -Path release\AICOM-Store-<versione>.appx -AllowUnsigned`, e lo toglie con `Get-AppxPackage AICOM.Test | Remove-AppxPackage`. Serve solo a guardare il pacchetto: lo Store lo rifiuta, e su un PC con Smart App Control attivo un pacchetto non firmato viene bloccato. Attenzione: la versione installata così legge i dati di AICOM già presenti sul PC e si collega allo stesso account Google.
+
+Se la costruzione si ferma con «Cannot create symbolic link» su `winCodeSign`, è un problema noto di electron-builder senza la *Modalità sviluppatore* di Windows: riguarda due file per macOS e il pacchetto viene prodotto lo stesso.
 
 ## T60 — Aggiornamenti automatici (scritto, non provato da una versione all'altra)
 
@@ -125,3 +195,4 @@ Vedi `02-google-cloud.md`, punto 9.
 3. Se cambia la struttura dei dati: nuova voce in `migrations` (mai modificare le esistenti) e prova di apertura di un file della versione precedente.
 4. Tag `vX.Y.Z` → il flusso costruisce, firma e pubblica.
 5. Installa la versione precedente su un PC di prova e verifica che si aggiorni.
+6. Se l'app è sullo Store: scarica *store-package* dal flusso in GitHub Actions e caricalo in un nuovo invio in Partner Center, con la stessa versione.

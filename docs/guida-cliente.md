@@ -104,6 +104,8 @@ Se cambi PC: sul vecchio, *Paramètres → Libérer la licence de ce PC*.
 
 **Windows mostra «Windows ha protetto il PC» all'installazione** — [Solo finché l'installer non è firmato: premi *Ulteriori informazioni → Esegui comunque*.]
 
+**Windows blocca l'installer senza possibilità di proseguire («Smart App Control» o «Un criterio di controllo dell'applicazione ha bloccato il file»)** — [Succede sui PC con Windows 11 installato da zero. Installa AICOM dal Microsoft Store: cerca «AICOM» nell'app Microsoft Store, oppure apri il link (da inserire dopo la pubblicazione). I dati sono gli stessi: collegando lo stesso account Google li ritrovi.]
+
 ## 8. Assistenza
 
 [E-mail e orari dell'assistenza.] Indica sempre la versione di AICOM, che trovi in *Paramètres*.

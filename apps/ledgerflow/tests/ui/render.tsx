@@ -35,7 +35,8 @@ function mount(screen: (store: Store, apply: (next: SetStateAction<Store>) => vo
     return screen(store, apply, (message) => notes.push(message), (action, record) => audits.push(`${action} · ${record}`))
   }
   render(<Harness />)
-  return { user: userEvent.setup(), notes, audits, violations, store: () => versions.at(-1)!, lastNote: () => notes.at(-1) ?? '' }
+  // No pause between keystrokes: the screens, not the typing speed, are what is tested.
+  return { user: userEvent.setup({ delay: null }), notes, audits, violations, store: () => versions.at(-1)!, lastNote: () => notes.at(-1) ?? '' }
 }
 
 const money = (amount: number) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XAF' }).format(amount)

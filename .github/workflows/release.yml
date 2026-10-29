@@ -46,9 +46,32 @@ jobs:
       - name: Build and sign
         run: npm run dist
         env:
-          # Code-signing certificate (.pfx as base64) and its password. Optional: without them the installer is unsigned.
+          # Signing is optional: without either method the installer is unsigned. scripts/dist.mjs picks the method.
+          # Azure Trusted Signing: account variables, and the app registration allowed to sign.
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_SIGNING_PUBLISHER: ${{ vars.AZURE_SIGNING_PUBLISHER }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          # Or a code-signing certificate (.pfx as base64) and its password.
           CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      # Microsoft Store package, once the Partner Center identity is set. It is uploaded by hand in Partner Center, which signs it.
+      - name: Store package
+        if: vars.STORE_IDENTITY_NAME != ''
+        run: node scripts/dist.mjs --store
+        env:
+          STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_NAME: ${{ vars.STORE_PUBLISHER_NAME }}
+      - name: Keep the Store package for Partner Center
+        if: vars.STORE_IDENTITY_NAME != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-package
+          path: apps/ledgerflow/release/*.appx
       - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, hostname, release } from 'node:os'
-import { join, normalize, sep } from 'node:path'
+import { basename, join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, safeStorage, shell, type IpcMainInvokeEvent } from 'electron'
 import electronUpdater from 'electron-updater'
@@ -72,6 +72,9 @@ let session: { account?: Account; db: Database; sync?: Sync; auth: Auth } | unde
 let tokens: Tokens | undefined
 let pendingSignIn: Awaited<ReturnType<typeof listenForRedirect>> | undefined
 let update: UpdateState = { status: 'idle' }
+// Installed from the Microsoft Store: the Store signs and updates the app, so our own updater stays off.
+const fromStore = process.windowsStore === true
+const STORE_UPDATES_URL = 'ms-windows-store://downloadsandupdates'
 let heartbeat: NodeJS.Timeout | undefined
 let quitting = false
 
@@ -219,19 +222,20 @@ async function checkUpdate(): Promise<UpdateState> {
     try {
       const query = new URLSearchParams({ platform: process.platform, current: app.getVersion() })
       const latest = await (await fetch(`${config.licenseServerUrl}/v1/updates/latest?${query}`, { signal: AbortSignal.timeout(10_000) })).json() as { updateAvailable?: boolean; version?: string; notes?: string; url?: string }
-      if (latest.updateAvailable && update.status === 'idle') update = { status: 'available', version: latest.version, notes: latest.notes, url: latest.url }
-      else if (latest.updateAvailable) update = { ...update, notes: latest.notes, url: latest.url }
+      const url = fromStore ? STORE_UPDATES_URL : latest.url
+      if (latest.updateAvailable && update.status === 'idle') update = { status: 'available', version: latest.version, notes: latest.notes, url }
+      else if (latest.updateAvailable) update = { ...update, notes: latest.notes, url }
     } catch {
       // Offline or service unreachable: try again at the next start.
     }
   }
-  if (app.isPackaged && config.updateFeedUrl) await electronUpdater.autoUpdater.checkForUpdates().catch(() => undefined)
+  if (app.isPackaged && config.updateFeedUrl && !fromStore) await electronUpdater.autoUpdater.checkForUpdates().catch(() => undefined)
   send('update', update)
   return update
 }
 
 function setupUpdater() {
-  if (!app.isPackaged || !config.updateFeedUrl) return
+  if (!app.isPackaged || !config.updateFeedUrl || fromStore) return
   const { autoUpdater } = electronUpdater
   autoUpdater.setFeedURL({ provider: 'generic', url: config.updateFeedUrl })
   // Downloads are started here, not by the updater: on a metered connection (phone hotspot, data plan) the customer decides.
@@ -391,7 +395,7 @@ const handlers: Record<string, (...args: never[]) => unknown> = {
     electronUpdater.autoUpdater.downloadUpdate().catch(() => undefined)
   },
   openExternal: async (url: string) => {
-    if (/^https:\/\//.test(String(url))) await shell.openExternal(url)
+    if (/^https:\/\//.test(String(url)) || (fromStore && url === STORE_UPDATES_URL)) await shell.openExternal(url)
   },
   quit: () => app.quit(),
 }
@@ -402,6 +406,15 @@ function createWindow() {
     icon: join(webRoot, 'aicom-icon.png'),
     webPreferences: { preload: join(appRoot, 'electron', 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false },
   })
+  // Several copies started from the project with their own AICOM_USER_DATA (one per simulated PC) are told apart by their title.
+  if (devMode && process.env.AICOM_USER_DATA) {
+    const label = `AICOM — ${basename(userData)}`
+    window.setTitle(label)
+    window.on('page-title-updated', (event) => {
+      event.preventDefault()
+      window?.setTitle(label)
+    })
+  }
   const home = devUrl ?? 'app://aicom/'
   // The window only ever shows the app itself; any other link opens in the customer's browser.
   window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(home)) event.preventDefault() })

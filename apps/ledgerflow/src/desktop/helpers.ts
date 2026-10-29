@@ -65,6 +65,20 @@ export function syncLabel(sync: SyncState, localOnly: boolean, tr: Translate): {
   }
 }
 
+/**
+ * What to show for a failed action: Electron's technical prefix removed, and the Google sign-in failures a customer can
+ * meet said in plain words. Empty when the customer cancelled the sign-in: nothing went wrong.
+ */
+export function errorMessage(error: unknown, tr: Translate) {
+  const message = (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  if (message === 'Google sign-in was cancelled.') return ''
+  if (message === 'Google sign-in timed out.') return tr('La connexion à Google n’a pas été terminée dans le navigateur. Cliquez de nouveau sur le bouton pour recommencer.', 'The Google sign-in was not completed in the browser. Click the button again to start over.')
+  if (message === 'access_denied') return tr('L’accès a été refusé sur la page de Google. Pour utiliser AICOM, recommencez et acceptez l’accès aux fichiers créés par AICOM.', 'Access was declined on the Google page. To use AICOM, start over and allow access to the files AICOM creates.')
+  if (message.startsWith('Google did not grant offline access')) return tr('Google n’a pas accordé tous les accès nécessaires. Recommencez et acceptez les autorisations demandées.', 'Google did not grant every access needed. Start over and accept the requested permissions.')
+  if (message.startsWith('Google token request failed') || message === 'Google did not return the account identity.') return tr('Google n’a pas pu terminer la connexion. Vérifiez votre connexion internet et réessayez.', 'Google could not complete the sign-in. Check your internet connection and try again.')
+  return message
+}
+
 export function authMessage(result: Extract<AuthResult, { ok: false }>, tr: Translate) {
   switch (result.reason) {
     case 'locked': return tr(`Trop de tentatives. Réessayez dans ${result.waitSeconds} secondes.`, `Too many attempts. Try again in ${result.waitSeconds} seconds.`)

@@ -4,7 +4,7 @@ import { Building2, Cloud, FileSpreadsheet, HardDrive, KeyRound, LoaderCircle, L
 import type { AppUser, AuthResult, DesktopApi, DesktopState, Revision } from '../desktopApi'
 import { exportWorkbook } from '../sageExport'
 import { countries, createEmptyStore, vatRatesOf, type CompanyInfo, type Store } from '../sageData'
-import { type Locale, type Translate, authMessage, currencies, licenceLabel, syncLabel } from './helpers'
+import { type Locale, type Translate, authMessage, currencies, errorMessage, licenceLabel, syncLabel } from './helpers'
 import { PasswordInput, RecoveryCode } from './fields'
 
 function UsersSettings({ api, state, tr, notify }: { api: DesktopApi; state: DesktopState; tr: Translate; notify: (message: string) => void }) {
@@ -102,7 +102,8 @@ export function SettingsDialog({ api, state, store, tr, locale, notify, refresh,
       await work()
       if (done) notify(done)
     } catch (error) {
-      notify(error instanceof Error ? error.message : String(error))
+      const message = errorMessage(error, tr)
+      if (message) notify(message)
     } finally { setBusy(false) }
   }
 

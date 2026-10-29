@@ -4,7 +4,7 @@ import { Building2, Check, ChevronDown, Cloud, CloudOff, LoaderCircle, LogOut, R
 import type { DesktopApi, DesktopState } from '../desktopApi'
 import { ledgerViolation, type LedgerViolation, type Store } from '../sageData'
 import logoMark from '../assets/aicom-mark.webp'
-import { type Locale, type Section, type Translate, licenceLabel, modules, syncLabel, workspace } from './helpers'
+import { type Locale, type Section, type Translate, errorMessage, licenceLabel, modules, syncLabel, workspace } from './helpers'
 import { FinanceView, SageModules } from './screens'
 import { AuditSection } from './audit'
 import { SettingsDialog } from './settings'
@@ -67,7 +67,8 @@ export function Workspace({ api, state, store, setStore, locale, setLocale, tr, 
       await refresh()
       await loadStore()
     } catch (error) {
-      notify(error instanceof Error ? error.message : String(error))
+      const message = errorMessage(error, tr)
+      if (message) notify(message)
     } finally { setReconnecting(false) }
   }
 

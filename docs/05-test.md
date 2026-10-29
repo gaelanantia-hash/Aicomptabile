@@ -33,6 +33,35 @@ Lo scenario del cliente in prova (primo avvio senza licenza né Google, inserime
 
 L'installer è stato costruito. Le prime build impacchettate si sono avviate; l'ultima è stata bloccata da Smart App Control di Windows perché non firmata (vedi `06-rilascio.md`), quindi la versione finale è stata verificata solo in forma non impacchettata. **L'installer non è stato eseguito** (installazione vera e propria non provata).
 
+## Prove con Google vero (29 ottobre 2026, prima sessione)
+
+Fatte su questo PC (RI-LEGAMI, Windows 11 con Smart App Control attivo), con l'app avviata dal progetto (`npm run desktop`), il servizio licenze e Drive veri, un account Gmail di prova (licenza «Dan», dati di prova) e l'utente AICOM «secretaire1».
+
+| Prova | Esito |
+|---|---|
+| T52-5 Login annullato chiudendo la scheda | L'app non si blocca; dopo 5 minuti mostrava il messaggio tecnico in inglese «Google sign-in timed out.». **Corretto**: ora un messaggio chiaro in francese/inglese, nessun messaggio se si preme «Annuler» |
+| Licenza su un PC nuovo, con l'account Google | Attivata da sola, senza codice; la licenza passa a 2 PC su 2 |
+| T54-1 PC nuovo, stesso account | Nessuna creazione dell'azienda: chiede identificativo e password AICOM, poi scarica i dati (identici al primo PC) |
+| Password AICOM sbagliata su un PC nuovo | Rifiutata, dati non aperti, tentativo nel registro accessi |
+| T54-2 Aperto su due PC | Avviso «AICOM est ouvert sur un autre PC» con *Quitter* / *Prendre la main*; dopo la presa in carico è il primo PC a fermarsi |
+| Electron 44.10.0 (aggiornamento di sicurezza) | L'app parte con Smart App Control attivo |
+
+**Da fare nella prossima sessione:** T52-2 (annotare l'avviso «app non verificata» e i permessi mostrati da Google), T52-4 (serve un account Workspace), T53 (revoca), T54-3/4/5 (due versioni dei dati, lavoro offline), terzo PC rifiutato dalla licenza, ripristino reale (T31).
+
+**Lasciato in sospeso:** la licenza «Dan» ha 2 PC su 2, il secondo è il PC simulato. Per liberarlo: `npm run admin -- reset-devices 8b73284a7852` (anche questo PC si riattiva da solo al prossimo controllo, tramite l'account Google).
+
+### Simulare un secondo PC sullo stesso computer
+
+Una seconda copia dell'app con una cartella dati propria è, per AICOM e per la licenza, un altro PC:
+
+```sh
+cd apps/ledgerflow
+npm run build:desktop
+AICOM_USER_DATA="$LOCALAPPDATA/AICOM-prova/PC-2" node scripts/desktop.mjs   # Git Bash
+```
+
+Il titolo della finestra mostra il nome della cartella («AICOM — PC-2»), solo quando l'app è avviata dal progetto. Per un nome di PC riconoscibile nella licenza, crea prima nella cartella un `device.json` con `{"id":"","name":"RI-LEGAMI (PC 2)"}`. Il primo avvio dopo un aggiornamento di Electron può richiedere più di 10 secondi.
+
 ## Da fare a mano, con Google vero
 
 Servono il progetto Google Cloud (`02-google-cloud.md`) e `desktop.config.json` compilato. Segna l'esito accanto a ogni riga.

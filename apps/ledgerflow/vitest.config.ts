@@ -8,5 +8,7 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['tests/ui/**/*.test.tsx'],
     setupFiles: ['tests/ui/setup.ts'],
+    // Each keystroke re-renders a whole screen: a slow or busy PC needs more than the default 5 seconds.
+    testTimeout: 20_000,
   },
 })

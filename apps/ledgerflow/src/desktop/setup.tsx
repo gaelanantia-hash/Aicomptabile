@@ -4,7 +4,7 @@ import { Building2, Check, Cloud, KeyRound, LoaderCircle, LockKeyhole, ShieldChe
 import type { DesktopApi, DesktopState } from '../desktopApi'
 import { countries, createEmptyStore, createStore, setupFor, vatRatesOf, type Store } from '../sageData'
 import logoMark from '../assets/aicom-mark.webp'
-import { type Locale, type Translate, authMessage, currencies, licenceLabel, licenseMessages, syncLabel } from './helpers'
+import { type Locale, type Translate, authMessage, currencies, errorMessage, licenceLabel, licenseMessages, syncLabel } from './helpers'
 import { PasswordInput, RecoveryCode } from './fields'
 
 export function Setup({ api, state, store, locale, setLocale, tr, refresh, loadStore, onCreate, onFinish }: {
@@ -58,7 +58,7 @@ export function Setup({ api, state, store, locale, setLocale, tr, refresh, loadS
     try {
       await work()
     } catch (error) {
-      setMessage(error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error))
+      setMessage(errorMessage(error, tr))
     } finally { setBusy(false) }
   }
 
